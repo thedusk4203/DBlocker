@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DBlocker</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main class="popup-shell">
+    <header class="topbar">
+      <div class="brand-lockup">
+        <div class="brand-mark" aria-hidden="true"><img src="../assets/brand/dblocker-logo.png" alt=""></div>
+        <div>
+          <div class="brand-row"><strong>DBlocker</strong><span class="version-badge">1.0.0</span></div>
+        </div>
+      </div>
+      <div class="top-actions">
+        <select id="langSelect" class="language-select" title="Ngôn ngữ / Language / 语言" aria-label="Ngôn ngữ">
+          <option value="vi">VI</option><option value="en">EN</option><option value="zh">ZH</option>
+        </select>
+        <button id="reloadTabBtn" class="icon-button" title="Tải lại trang web" aria-label="Tải lại trang">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 6v5h-5"/><path d="M18.7 15A8 8 0 1 1 19 8"/></svg>
+        </button>
+        <button id="supportBtn" class="icon-button support-button" title="Ủng hộ DBlocker" aria-label="Ủng hộ DBlocker">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21.2l8.8-8.8a5.5 5.5 0 0 0 0-7.8z"/></svg>
+        </button>
+        <button id="optionsBtn" class="icon-button" title="Cài đặt tùy chọn" aria-label="Cài đặt">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3 1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8 1.7 1.7 0 0 0 1.5 1h.1a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <section class="site-section">
+      <div class="site-heading">
+        <div class="site-identity">
+          <span class="site-favicon-fallback" aria-hidden="true">●</span>
+          <div class="site-copy">
+            <span id="currentSiteEyebrow" class="eyebrow">Current website</span>
+            <div class="site-host-row"><span id="currentHost" class="site-host">Đang nhận diện trang…</span><button id="copyHostBtn" class="copy-host" title="Sao chép tên miền" aria-label="Sao chép"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="protection-card" id="protectionCard">
+        <div class="protection-left">
+          <div class="protection-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg></div>
+          <div><div id="protectionStateText" class="protection-title">Đang kiểm tra...</div><div id="siteKeyHint" class="protection-description">Site key: —</div></div>
+        </div>
+        <label class="switch" title="Bật / Tắt tự động chặn cho trang web này"><input type="checkbox" id="protectionSwitch" disabled><span class="slider"></span></label>
+      </div>
+    </section>
+
+    <section class="summary-card" aria-label="Blocked summary">
+      <div class="summary-main"><span id="blockedTotal" class="summary-number">0</span><span id="blockedTotalLabel" class="summary-label">blocked on this page</span></div>
+      <div class="summary-detail"><span class="summary-dot"></span><span id="blockedSummary">No activity yet</span></div>
+    </section>
+
+    <nav class="tabs-nav" aria-label="DBlocker tabs">
+      <button id="tabBlock" class="tab-btn active" data-tab="block"><span class="tab-label">Đã chặn</span><span id="tabBlockCount" class="tab-count">0</span></button>
+      <button id="tabAllow" class="tab-btn" data-tab="allow"><span class="tab-label">Cho phép</span><span id="tabAllowCount" class="tab-count">0</span></button>
+      <button id="tabSites" class="tab-btn" data-tab="sites"><span class="tab-label">Danh sách chặn</span><span id="tabSitesCount" class="tab-count">0</span></button>
+    </nav>
+
+    <section id="list" class="list-container"></section>
+
+    <footer class="footer">
+      <button id="clearBtn" class="footer-action" title="Xóa danh sách chặn trên tab này"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M8 6V4h8v2m-9 0 1 14h8l1-14"/></svg><span>Xóa log</span></button>
+      <div id="status" class="status-pill">Sẵn sàng</div>
+    </footer>
+  </main>
+  <script src="../src/psl.js"></script>
+  <script src="../src/shared.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
