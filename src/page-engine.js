@@ -34,7 +34,7 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
       toast_redirect: 'Chặn redirect: {host}',
       toast_form: 'Chặn form: {host}',
       toast_load_once: 'Đã tải 1 lần: {host}',
-      toast_click_overlay: 'Đã vô hiệu lớp click toàn màn hình',
+      toast_click_overlay: 'Đã vô hiệu lớp bắt click quảng cáo đã nhận diện',
     }),
     en: Object.freeze({
       player_title: '🛡️ DBlocker: Video Player',
@@ -58,7 +58,7 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
       toast_redirect: 'Blocked redirect: {host}',
       toast_form: 'Blocked form: {host}',
       toast_load_once: 'Loaded once: {host}',
-      toast_click_overlay: 'Blocked full-screen click overlay',
+      toast_click_overlay: 'Blocked known click-capture overlay',
     }),
     zh: Object.freeze({
       player_title: '🛡️ DBlocker: 视频播放器',
@@ -82,7 +82,7 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
       toast_redirect: '已拦截重定向: {host}',
       toast_form: '已拦截表单提交: {host}',
       toast_load_once: '已单次允许: {host}',
-      toast_click_overlay: '已禁用全屏点击遮罩',
+      toast_click_overlay: '已拦截已识别的点击捕获遮罩',
     }),
   });
 
@@ -856,50 +856,30 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
   }
 
   // =========================================================
-  // FULL-SCREEN CLICK OVERLAY GUARD
+  // TARGETED CLICK-CAPTURE OVERLAY GUARD
   // =========================================================
 
-  // Some ad scripts wait a few seconds, then place a transparent fixed layer over
-  // the entire page. The layer captures the user's next click and opens an ad.
-  // It is not necessarily an <a>, and the click handler can live on document in
-  // capture phase. Therefore this guard has three layers:
-  //   1) identify/neutralize strong overlay signatures,
-  //   2) intercept activation events at WINDOW capture before document capture,
-  //   3) keep the window.open guard as the final fallback.
-  //
-  // Known real-world signature: acscdn.com aclib/suv5 creates div#dontfoid with
-  // position:fixed, transparent background, max z-index and pointer-events:auto.
-  const CLICK_OVERLAY_HINT_RE = /(?:^|[-_\s])(?:ad|ads|advert|overlay|click|pop|under|interstitial|sponsor)(?:$|[-_\s])/i;
+  // Compatibility rule: DBlocker no longer classifies arbitrary full-screen,
+  // transparent, fixed-position elements as ad overlays. Real video players and
+  // fullscreen UIs frequently use exactly those primitives. The overlay guard is
+  // therefore restricted to the verified #dontfoid/aclib signature that motivated
+  // this protection in the first place.
   const KNOWN_CLICK_OVERLAY_IDS = new Set(['dontfoid']);
   const KNOWN_CLICK_OVERLAY_VENDOR_RE = /(?:^|\.)acscdn\.com$/i;
   const KNOWN_CLICK_OVERLAY_SCRIPT_RE = /\/(?:script\/)?(?:aclib|suv5)\.js(?:[?#]|$)/i;
-  const AUTH_INTENT_RE = /(?:^|[\s_\-/.])(?:login|log[\s_-]?in|signin|sign[\s_-]?in|signup|sign[\s_-]?up|register|registration|account|accounts|auth|oauth|authorize|session|sso|identity|credential|đăng\s*nhập|dang\s*nhap|đăng\s*k[ýy]|dang\s*ky|登录|登入|注册)(?:$|[\s_\-/.?&#=])/i;
-  const PLAYER_UI_HINT_RE = /(?:^|[\s_-])(?:video|player|jwplayer|jw-|plyr|video-js|vjs|shaka|clappr|controls?|poster|media)(?:$|[\s_-])/i;
-  const LEGIT_DIALOG_SELECTOR = 'dialog,[role="dialog"],[aria-modal="true"],[role="alertdialog"],form';
   const blockedOverlayState = new WeakMap();
   const blockedOverlayElements = new Set();
   let overlayObserver = null;
   let overlayScanTimer = null;
-  let overlayScanScheduled = false;
-  let lastOverlayHoverCheckAt = 0;
-  let overlaySuppressionUntil = 0;
-  let overlayPendingActivationUntil = 0;
-  // Once a verified click-capture overlay has existed in this document, its
-  // capture listeners may remain alive even after the DOM layer is hidden. Keep
-  // this state for the lifetime of the protected document so every later physical
-  // activation can arm the background child-tab quarantine without swallowing
-  // legitimate page clicks.
   let overlayAttackPersistent = false;
   let lastOverlayActivationTelemetryAt = 0;
   const OVERLAY_ACTIVATION_TELEMETRY_DEBOUNCE_MS = 320;
   let knownOverlayVendorEvidence = false;
   let lastOverlayVendorScanAt = 0;
 
-  // Known acscdn/aclib listeners are wrapped when they register after MAIN engine
-  // startup. They behave normally until a verified overlay attack is observed;
-  // afterwards only those vendor capture listeners are suppressed. Existing
-  // listeners that registered before MAIN injection are handled by persistent
-  // per-activation background quarantine below.
+  // Known acscdn/aclib capture listeners that register after MAIN-engine startup
+  // are wrapped. Listeners that registered before injection are handled by the
+  // authenticated per-activation background quarantine once #dontfoid is verified.
   const KNOWN_VENDOR_CAPTURE_TYPES = new Set([
     'pointerdown', 'mousedown', 'touchstart', 'pointerup', 'mouseup',
     'touchend', 'click', 'auxclick', 'contextmenu',
@@ -985,113 +965,6 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
 
   installKnownVendorCaptureListenerGuard();
 
-
-  function elementIsVisiblyRendered(el) {
-    if (!el || el.nodeType !== 1) return false;
-    try {
-      const style = getComputedStyle(el);
-      if (style.display === 'none' || style.visibility === 'hidden' || Number.parseFloat(style.opacity || '1') <= 0.02) return false;
-      const rect = el.getBoundingClientRect();
-      return rect.width >= 2 && rect.height >= 2;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  function authIntentBlob(el) {
-    if (!el || el.nodeType !== 1) return '';
-    const parts = [];
-    try {
-      for (const value of [
-        el.id, typeof el.className === 'string' ? el.className : '',
-        el.getAttribute?.('name'), el.getAttribute?.('aria-label'), el.getAttribute?.('title'),
-        el.getAttribute?.('href'), el.getAttribute?.('action'), el.getAttribute?.('data-action'),
-        el.getAttribute?.('data-testid'), el.getAttribute?.('data-target'), el.getAttribute?.('data-bs-target'),
-      ]) {
-        if (value) parts.push(String(value).slice(0, 240));
-      }
-      const text = String(el.textContent || '').replace(/\s+/g, ' ').trim();
-      if (text) parts.push(text.slice(0, 240));
-    } catch (_) {}
-    return parts.join(' ').toLowerCase();
-  }
-
-  // Security note: page-controlled labels/attributes are not a trust boundary.
-  // DBlocker intentionally has no automatic popup/OAuth bypass derived from DOM
-  // "login/auth" hints. New-context auth flows use the same popup/form rules as
-  // every other navigation and can be explicitly allowed by the user.
-
-  function isMeaningfulLegitimateDialog(candidate) {
-    if (!elementIsVisiblyRendered(candidate)) return false;
-    try {
-      if (candidate.matches?.('form')) {
-        return !!candidate.querySelector?.('input[type="password"],input[type="email"],button[type="submit"],input[type="submit"]');
-      }
-      if (!candidate.matches?.('dialog,[role="dialog"],[aria-modal="true"],[role="alertdialog"]')) return false;
-      const text = String(candidate.textContent || '').replace(/\s+/g, ' ').trim();
-      const interactive = !!candidate.querySelector?.('button,input,select,textarea,a[href]');
-      if (!interactive && text.length <= 8) return false;
-      const style = getComputedStyle(candidate);
-      const alpha = colorAlpha(style.backgroundColor);
-      const opacity = Number.parseFloat(style.opacity || '1');
-      // Empty/transparent page-controlled "dialog" labels are not trusted.
-      if ((!Number.isFinite(opacity) || opacity <= 0.08) && alpha <= 0.08 && !interactive) return false;
-      return true;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  function visibleDialogOrAuthFormExistsNear(el) {
-    if (!el || el.nodeType !== 1) return false;
-    const candidates = [];
-    try {
-      if (el.matches?.(LEGIT_DIALOG_SELECTOR)) candidates.push(el);
-      for (const child of el.querySelectorAll?.(LEGIT_DIALOG_SELECTOR) || []) candidates.push(child);
-      const parent = el.parentElement;
-      if (parent) {
-        for (const sibling of parent.querySelectorAll?.(':scope > dialog,:scope > [role="dialog"],:scope > [aria-modal="true"],:scope > [role="alertdialog"],:scope > form') || []) {
-          if (sibling !== el) candidates.push(sibling);
-        }
-      }
-    } catch (_) {}
-
-    for (const candidate of candidates.slice(0, 24)) {
-      if (isMeaningfulLegitimateDialog(candidate)) return true;
-    }
-    return false;
-  }
-
-  function isLikelyPlayerVisualLayer(el) {
-    if (!el || el.nodeType !== 1) return false;
-    try {
-      if (el.matches?.('video,canvas')) return true;
-      let node = el;
-      for (let depth = 0; node && depth < 4; depth += 1, node = node.parentElement) {
-        const blob = `${node.id || ''} ${typeof node.className === 'string' ? node.className : ''}`;
-        if (!PLAYER_UI_HINT_RE.test(blob)) continue;
-        if (node.matches?.('video,canvas') || node.querySelector?.('video,canvas')) return true;
-      }
-    } catch (_) {}
-    return false;
-  }
-
-  function isLikelyLegitimateModalLayer(el) {
-    if (!el || el.nodeType !== 1) return false;
-    const blob = authIntentBlob(el);
-    const modalHint = /(?:^|[\s_-])(?:modal|dialog|backdrop|drawer|sheet|login|signin|signup|register|auth)(?:$|[\s_-])/i.test(blob);
-    if (visibleDialogOrAuthFormExistsNear(el)) return true;
-    if (modalHint) {
-      try {
-        const globalCandidates = document.querySelectorAll('dialog[open],[role="dialog"],[aria-modal="true"],[role="alertdialog"],form');
-        for (const candidate of Array.from(globalCandidates).slice(0, 32)) {
-          if (isMeaningfulLegitimateDialog(candidate)) return true;
-        }
-      } catch (_) {}
-    }
-    return false;
-  }
-
   function colorAlpha(value) {
     const text = String(value || '').trim().toLowerCase();
     if (!text || text === 'transparent') return 0;
@@ -1134,6 +1007,11 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
     if (!el || el.nodeType !== 1 || el === document.documentElement || el === document.body) return null;
     if (el.closest?.('[data-dblocker-placeholder="1"]')) return null;
 
+    // IMPORTANT: exact known signature first. No generic full-screen element can
+    // enter this path, regardless of size, z-index, opacity, or player state.
+    const exactId = KNOWN_CLICK_OVERLAY_IDS.has(String(el.id || '').toLowerCase());
+    if (!exactId) return null;
+
     let rect;
     let style;
     try {
@@ -1145,15 +1023,15 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
     const vh = Math.max(1, innerHeight || document.documentElement.clientHeight || 1);
     const widthRatio = rect.width / vw;
     const heightRatio = rect.height / vh;
-    if (widthRatio < 0.90 || heightRatio < 0.90) return null;
-    if (!['fixed', 'absolute', 'sticky'].includes(style.position)) return null;
+    if (widthRatio < 0.95 || heightRatio < 0.95) return null;
+    if (!['fixed', 'absolute'].includes(style.position)) return null;
     if (style.display === 'none' || style.visibility === 'hidden' || style.pointerEvents === 'none') return null;
 
-    const nearViewport = rect.left <= vw * 0.08 && rect.top <= vh * 0.08 && rect.right >= vw * 0.92 && rect.bottom >= vh * 0.92;
+    const nearViewport = rect.left <= vw * 0.08 && rect.top <= vh * 0.08
+      && rect.right >= vw * 0.92 && rect.bottom >= vh * 0.92;
     if (!nearViewport) return null;
 
     const z = Number.parseInt(style.zIndex, 10);
-    const highZ = Number.isFinite(z) && z >= 999;
     const veryHighZ = Number.isFinite(z) && z >= 9999;
     const extremeZ = Number.isFinite(z) && z >= 2147480000;
     const opacity = Number.parseFloat(style.opacity || '1');
@@ -1161,69 +1039,27 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
     const transparent = (Number.isFinite(opacity) && opacity <= 0.08)
       || (backgroundAlpha <= 0.08 && (!style.backgroundImage || style.backgroundImage === 'none'));
     const lowContent = !hasMeaningfulOverlayContent(el);
-    const nameBlob = `${el.id || ''} ${typeof el.className === 'string' ? el.className : ''}`;
-    const hinted = CLICK_OVERLAY_HINT_RE.test(nameBlob);
-    const exactId = KNOWN_CLICK_OVERLAY_IDS.has(String(el.id || '').toLowerCase());
-    const vendorEvidence = exactId && hasKnownOverlayVendorScript();
-    const defaultCursor = style.cursor === 'auto' || style.cursor === 'default';
-    const pointerActive = style.pointerEvents !== 'none';
+    const vendorEvidence = hasKnownOverlayVendorScript();
 
-    let score = 0;
-    if (widthRatio >= 0.97 && heightRatio >= 0.97) score += 4;
-    else score += 2;
-    if (highZ) score += 3;
-    if (veryHighZ) score += 2;
-    if (extremeZ) score += 3;
-    if (transparent) score += 4;
-    if (lowContent) score += 3;
-    if (hinted) score += 3;
-    if (defaultCursor) score += 1;
-    if (el.tagName === 'A' || el.hasAttribute('onclick')) score += 2;
-    if (exactId) score += 7;
-    if (vendorEvidence) score += 4;
-
-    // Known dontfoid/aclib overlays are still required to have the structural
-    // fingerprint (near-fullscreen, pointer-active, transparent, empty). The
-    // known signature only lowers ambiguity; it is not an unconditional ID block.
-    const knownStrong = exactId
-      && pointerActive
+    // #dontfoid alone is not enough. It must still look like the verified
+    // transparent click-catcher, which prevents accidental blocking of an
+    // unrelated element that happens to reuse the same id.
+    const knownStrong = style.pointerEvents !== 'none'
       && transparent
       && lowContent
-      && widthRatio >= 0.95
-      && heightRatio >= 0.95
-      && (style.position === 'fixed' || style.position === 'absolute')
       && (extremeZ || veryHighZ || vendorEvidence);
-
-    // Generic fullscreen heuristics are intentionally TOP-FRAME ONLY. A video
-    // player iframe commonly contains transparent/full-viewport control or render
-    // layers; treating those as ad overlays causes the classic "audio but black
-    // video" regression. Child frames only use verified #dontfoid/aclib signatures.
-    if (!isTopFrame && !knownStrong) return null;
-
-    // Even in the top frame, video players may use transparent full-size control
-    // surfaces. If the candidate is structurally tied to an actual video/canvas
-    // player, prefer compatibility unless it is the verified hostile signature.
-    if (!knownStrong && isLikelyPlayerVisualLayer(el)) return null;
-
-    // Never classify real dialogs/auth UI (or their backdrops) as ad overlays.
-    // This preserves login/register modals while keeping the verified vendor
-    // signature path available for truly hostile transparent catchers.
-    if (!knownStrong && isLikelyLegitimateModalLayer(el)) return null;
-
-    // Generic path deliberately ignores ordinary modal backdrops with visible/dim
-    // backgrounds or real dialog content.
-    if (!knownStrong && ((!transparent && !hinted) || !lowContent || score < 10)) return null;
+    if (!knownStrong) return null;
 
     return {
       el,
-      score,
+      score: 100,
       rect,
       z,
       transparent,
-      hinted,
-      exactId,
+      hinted: false,
+      exactId: true,
       vendorEvidence,
-      classification: vendorEvidence ? 'dontfoid-aclib' : exactId ? 'dontfoid' : 'fullscreen-overlay',
+      classification: vendorEvidence ? 'dontfoid-aclib' : 'dontfoid',
     };
   }
 
@@ -1236,19 +1072,7 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
     return null;
   }
 
-  function eventClientPoint(event) {
-    if (Number.isFinite(event?.clientX) && Number.isFinite(event?.clientY)) {
-      return { x: event.clientX, y: event.clientY };
-    }
-    const touch = event?.touches?.[0] || event?.changedTouches?.[0];
-    if (touch && Number.isFinite(touch.clientX) && Number.isFinite(touch.clientY)) {
-      return { x: touch.clientX, y: touch.clientY };
-    }
-    return null;
-  }
-
   function findSuspiciousOverlayFromEvent(event) {
-    // Prefer the real event path because event.target can be a child of the layer.
     try {
       const path = typeof event?.composedPath === 'function' ? event.composedPath() : [];
       for (let i = 0; i < Math.min(path.length, 10); i += 1) {
@@ -1260,25 +1084,11 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
     const fromTarget = findSuspiciousOverlay(event?.target);
     if (fromTarget) return fromTarget;
 
-    // Re-check the actual hit-tested node at the pointer position. This catches
-    // document-level capture listeners even when the event target/path is unusual.
-    const point = eventClientPoint(event);
-    if (point) {
-      try {
-        const hit = document.elementFromPoint(point.x, point.y);
-        const candidate = findSuspiciousOverlay(hit);
-        if (candidate) return candidate;
-      } catch (_) {}
-    }
-
-    // Fast path for the verified acscdn/aclib signature. It remains structural:
-    // an unrelated #dontfoid that is not a transparent fullscreen catcher is ignored.
     try {
       const known = document.getElementById('dontfoid');
       const candidate = overlayCandidateScore(known);
       if (candidate) return candidate;
     } catch (_) {}
-
     return null;
   }
 
@@ -1318,6 +1128,25 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
     }
   }
 
+  function ensureKnownOverlayWatchTimer() {
+    if (overlayScanTimer) return;
+    overlayScanTimer = setInterval(() => {
+      if (!protectionEnabled) return;
+      enforceBlockedClickOverlays();
+      let known = null;
+      try { known = document.getElementById('dontfoid'); } catch (_) {}
+      if (known) {
+        const candidate = overlayCandidateScore(known);
+        if (candidate) neutralizeClickOverlay(candidate.el, 'known-watch');
+        return;
+      }
+      if (!blockedOverlayElements.size && overlayScanTimer) {
+        clearInterval(overlayScanTimer);
+        overlayScanTimer = null;
+      }
+    }, 1000);
+  }
+
   function neutralizeClickOverlay(el, reason = 'detected') {
     if (!protectionEnabled || !el?.isConnected) return false;
     const origin = currentOrigin;
@@ -1325,13 +1154,10 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
 
     const existingState = blockedOverlayState.get(el);
     if (existingState) {
-      // The ad script may reuse the same node and rewrite its inline style. Re-apply
-      // neutralization without creating duplicate telemetry/state.
       try { el.style.setProperty('pointer-events', 'none', 'important'); } catch (_) {}
       try { el.style.setProperty('display', 'none', 'important'); } catch (_) {}
-      overlaySuppressionUntil = Date.now() + 900;
-      overlayPendingActivationUntil = Date.now() + 60000;
       overlayAttackPersistent = true;
+      ensureKnownOverlayWatchTimer();
       return true;
     }
 
@@ -1349,32 +1175,11 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
     blockedOverlayState.set(el, state);
     blockedOverlayElements.add(el);
 
-    // Child/player frames do not run generic fullscreen polling. If a strong
-    // signature is actually blocked there, start a cheap enforcement-only timer so
-    // a hostile script cannot revive the same node by rewriting inline styles.
-    if (!isTopFrame && !overlayScanTimer) {
-      overlayScanTimer = setInterval(() => {
-        if (!protectionEnabled) return;
-        enforceBlockedClickOverlays();
-        if (!blockedOverlayElements.size && overlayScanTimer) {
-          clearInterval(overlayScanTimer);
-          overlayScanTimer = null;
-        }
-      }, 1000);
-    }
-
-    // pointer-events:none is applied first so the layer stops capturing input even
-    // if the site races to rewrite display. display:none then removes the visual/
-    // hit-test layer without removing the DOM node (avoids recreate/remove loops).
     try { el.style.setProperty('pointer-events', 'none', 'important'); } catch (_) {}
     try { el.style.setProperty('display', 'none', 'important'); } catch (_) {}
 
-    overlaySuppressionUntil = Date.now() + 900;
     overlayAttackPersistent = true;
-    // The overlay can be hidden by the observer before the user clicks, while the
-    // ad library's document-capture listener remains registered. Keep a one-shot
-    // activation shield armed long enough to swallow the next physical click.
-    overlayPendingActivationUntil = Date.now() + 60000;
+    ensureKnownOverlayWatchTimer();
     const classification = candidate.classification || reason;
     recordBlocked('click-overlay', location.href, {
       origin,
@@ -1384,50 +1189,13 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
     return true;
   }
 
-  function scanTopmostClickOverlay() {
-    if (!protectionEnabled || !document.documentElement) return false;
-
-    // Verified real-world fast path first.
-    try {
-      const known = document.getElementById('dontfoid');
-      const knownCandidate = overlayCandidateScore(known);
-      if (knownCandidate && neutralizeClickOverlay(knownCandidate.el, 'known-signature')) return true;
-    } catch (_) {}
-
-    const vw = Math.max(1, innerWidth || document.documentElement.clientWidth || 1);
-    const vh = Math.max(1, innerHeight || document.documentElement.clientHeight || 1);
-    const points = [
-      [0.50, 0.50], [0.08, 0.08], [0.92, 0.08], [0.08, 0.92], [0.92, 0.92],
-    ];
-    const hits = new Map();
-    for (const [px, py] of points) {
-      let target = null;
-      try { target = document.elementFromPoint(Math.floor(vw * px), Math.floor(vh * py)); } catch (_) {}
-      const candidate = findSuspiciousOverlay(target);
-      if (!candidate) continue;
-      const count = (hits.get(candidate.el) || 0) + 1;
-      hits.set(candidate.el, count);
-      if (count >= 3) return neutralizeClickOverlay(candidate.el, 'hit-test');
-    }
-    return false;
-  }
-
-  function scheduleOverlayScan(delay = 24) {
-    if (!isTopFrame || !protectionEnabled || overlayScanScheduled) return;
-    overlayScanScheduled = true;
-    setTimeout(() => {
-      overlayScanScheduled = false;
-      scanTopmostClickOverlay();
-    }, delay);
-  }
-
-  function overlayPointerMoveHandler(event) {
-    if (!protectionEnabled) return;
-    const now = Date.now();
-    if (now - lastOverlayHoverCheckAt < 150) return;
-    lastOverlayHoverCheckAt = now;
-    const candidate = findSuspiciousOverlayFromEvent(event);
-    if (candidate) neutralizeClickOverlay(candidate.el, 'hover');
+  function inspectKnownClickOverlay(reason = 'known-signature') {
+    let known = null;
+    try { known = document.getElementById('dontfoid'); } catch (_) {}
+    if (!known) return false;
+    ensureKnownOverlayWatchTimer();
+    const candidate = overlayCandidateScore(known);
+    return !!(candidate && neutralizeClickOverlay(candidate.el, reason));
   }
 
   function stopOverlayActivationEvent(event) {
@@ -1454,59 +1222,30 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
   function overlayActivationCaptureHandler(event) {
     if (!protectionEnabled) return;
 
-    const now = Date.now();
-    // Strong overlay evidence is evaluated before any page-provided semantic hints.
-    // A hostile page cannot bypass the guard by labelling an overlay "login/auth".
+    // Only the verified #dontfoid signature can cause click suppression now.
+    // Generic fullscreen/player/control layers never enter this path.
     const candidate = findSuspiciousOverlayFromEvent(event);
     if (candidate) {
-      // WINDOW capture runs before DOCUMENT capture. Neutralize first, then swallow
-      // this physical activation so document-level aclib listeners never see it.
-      // Respect an explicit global click-overlay ALLOW rule.
       if (!neutralizeClickOverlay(candidate.el, `capture-${event.type}`)) return;
       emitPersistentOverlayActivation(event);
-      overlayPendingActivationUntil = 0;
-      overlaySuppressionUntil = now + 1500;
       stopOverlayActivationEvent(event);
       return;
     }
 
-    if (now < overlayPendingActivationUntil) {
-      // An observer/hover scan may have hidden the overlay seconds before the user
-      // actually clicks. The document capture listener can still be armed. Consume
-      // the first physical activation, but DO NOT clear persistent attack state:
-      // the hostile capture listener can remain alive for the rest of the document.
-      emitPersistentOverlayActivation(event);
-      overlayPendingActivationUntil = 0;
-      overlaySuppressionUntil = now + 1500;
-      stopOverlayActivationEvent(event);
-      return;
-    }
-
-    if (now < overlaySuppressionUntil) {
-      // Browsers may still dispatch the rest of an activation sequence after the
-      // overlay was hidden during pointerdown/touchstart.
-      stopOverlayActivationEvent(event);
-      return;
-    }
-
-    // The DOM catcher is gone, but the acscdn window/document capture listener can
-    // survive indefinitely. Do not swallow normal page clicks here; instead send an
-    // authenticated activation heartbeat so background can quarantine any child tab
-    // created by the surviving popunder listener. This repeats for every later
-    // physical activation until navigation, Protection OFF, or explicit ALLOW.
+    // After a verified attack, do not swallow ordinary clicks. Send a signed
+    // heartbeat instead so background can quarantine popunder tabs while native
+    // page/player interactions (including fullscreen buttons) continue normally.
     emitPersistentOverlayActivation(event);
   }
 
   function inspectAddedOverlayNode(node) {
     if (!node || node.nodeType !== 1) return false;
-    const direct = overlayCandidateScore(node);
-    if (direct && neutralizeClickOverlay(direct.el, 'mutation')) return true;
-    try {
-      const known = node.id === 'dontfoid' ? node : node.querySelector?.('#dontfoid');
-      const candidate = overlayCandidateScore(known);
-      if (candidate && neutralizeClickOverlay(candidate.el, 'mutation-known')) return true;
-    } catch (_) {}
-    return false;
+    let known = null;
+    try { known = node.id === 'dontfoid' ? node : node.querySelector?.('#dontfoid'); } catch (_) {}
+    if (!known) return false;
+    ensureKnownOverlayWatchTimer();
+    const candidate = overlayCandidateScore(known);
+    return !!(candidate && neutralizeClickOverlay(candidate.el, 'mutation-known'));
   }
 
   const OVERLAY_CAPTURE_EVENTS = ['pointerdown', 'mousedown', 'touchstart', 'pointerup', 'mouseup', 'touchend', 'click', 'auxclick', 'contextmenu'];
@@ -1514,12 +1253,6 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
   function setupClickOverlayGuard() {
     if (!protectionEnabled || overlayObserver) return;
 
-    // Generic hover/hit-test detection is top-frame only. Child/player frames keep
-    // capture interception and targeted strong-signature mutation checks, avoiding
-    // periodic viewport scans that previously scaled with nested iframe count.
-    if (isTopFrame) {
-      window.addEventListener('pointermove', overlayPointerMoveHandler, { capture: true, passive: true });
-    }
     for (const type of OVERLAY_CAPTURE_EVENTS) {
       window.addEventListener(type, overlayActivationCaptureHandler, { capture: true, passive: false });
     }
@@ -1527,39 +1260,25 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
     overlayObserver = new MutationObserver((mutations) => {
       if (!protectionEnabled) return;
       cleanupDetachedClickOverlays();
-      let needsScan = false;
       for (const mutation of mutations) {
         if (mutation.type !== 'childList' || !mutation.addedNodes.length) continue;
-        for (const node of mutation.addedNodes) {
-          if (inspectAddedOverlayNode(node)) return;
-          needsScan = true;
-        }
+        for (const node of mutation.addedNodes) inspectAddedOverlayNode(node);
       }
-      if (needsScan && isTopFrame) scheduleOverlayScan(16);
     });
     overlayObserver.observe(document.documentElement || document, { childList: true, subtree: true });
 
-    if (isTopFrame) {
-      overlayScanTimer = setInterval(() => {
-        if (!protectionEnabled) return;
-        enforceBlockedClickOverlays();
-        scanTopmostClickOverlay();
-      }, 750);
-      scheduleOverlayScan(0);
-    }
+    // One targeted startup check catches a #dontfoid node inserted before the
+    // MAIN engine. No viewport hit-testing or generic fullscreen polling remains.
+    inspectKnownClickOverlay('startup-known');
   }
 
   function stopClickOverlayGuard() {
     if (overlayObserver) { overlayObserver.disconnect(); overlayObserver = null; }
     if (overlayScanTimer) { clearInterval(overlayScanTimer); overlayScanTimer = null; }
-    overlayScanScheduled = false;
-    overlaySuppressionUntil = 0;
-    overlayPendingActivationUntil = 0;
     overlayAttackPersistent = false;
     lastOverlayActivationTelemetryAt = 0;
     knownOverlayVendorEvidence = false;
     lastOverlayVendorScanAt = 0;
-    window.removeEventListener('pointermove', overlayPointerMoveHandler, true);
     for (const type of OVERLAY_CAPTURE_EVENTS) {
       window.removeEventListener(type, overlayActivationCaptureHandler, true);
     }
@@ -1634,27 +1353,38 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
     return null;
   };
 
+  // Chromium exposes the Navigation API from Chrome 102 onward. Unlike attempts
+  // to overwrite Location.prototype (whose navigation members are unforgeable),
+  // the native `navigate` event is fired for legacy programmatic navigations such
+  // as location.assign(), location.replace(), and location.href assignments.
+  function handleNavigationApiRedirect(event) {
+    if (!protectionEnabled) return false;
+    const destinationUrl = event?.destination?.url;
+    if (!destinationUrl || !isCrossOrigin(destinationUrl)) return false;
+    const origin = getOrigin(destinationUrl, currentOrigin);
+    if (isRuleAllowed('redirect', origin)) return false;
+
+    const guarded = isTabUnderGuardActive();
+    const programmatic = event?.userInitiated === false;
+    if (!guarded && !programmatic) return false;
+
+    // Cross-origin navigations cannot be `intercept()`-ed, but NavigateEvent is
+    // cancelable for ordinary location-driven navigations. preventDefault() is
+    // the supported way to stop the navigation completely.
+    if (event?.cancelable !== true || typeof event.preventDefault !== 'function') return false;
+    event.preventDefault();
+    recordBlocked('redirect', destinationUrl, { origin });
+    showToast(guarded
+      ? trEngine('toast_redirect_tab_under', { host: displayHost(origin) })
+      : trEngine('toast_redirect_prog', { host: displayHost(origin) }));
+    console.warn('[AdsControl] Navigation API blocked:', destinationUrl, guarded ? tabUnderGuardReason : 'programmatic');
+    return true;
+  }
+
   try {
     const navigationApi = window.navigation;
     if (navigationApi?.addEventListener) {
-      navigationApi.addEventListener('navigate', (event) => {
-        if (!protectionEnabled) return;
-        const destinationUrl = event.destination?.url;
-        if (!destinationUrl || !isCrossOrigin(destinationUrl)) return;
-        const origin = getOrigin(destinationUrl, currentOrigin);
-        if (isRuleAllowed('redirect', origin)) return;
-        const guarded = isTabUnderGuardActive();
-        const programmatic = event.userInitiated === false;
-        if (!guarded && !programmatic) return;
-        if (event.cancelable) {
-          event.preventDefault();
-          recordBlocked('redirect', destinationUrl, { origin });
-          showToast(guarded
-            ? trEngine('toast_redirect_tab_under', { host: displayHost(origin) })
-            : trEngine('toast_redirect_prog', { host: displayHost(origin) }));
-          console.warn('[AdsControl] Navigation API blocked:', destinationUrl, guarded ? tabUnderGuardReason : 'programmatic');
-        }
-      });
+      navigationApi.addEventListener('navigate', handleNavigationApiRedirect);
     }
   } catch (_) {}
 
@@ -1736,49 +1466,6 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
       recordBlocked('redirect', url, { origin });
       showToast(trEngine('toast_history_redirect', { host: displayHost(origin) }));
     };
-  }
-
-  function shouldBlockRedirect(url, source) {
-    if (!protectionEnabled || !isCrossOrigin(url)) return false;
-    const origin = getOrigin(url, currentOrigin);
-    if (isRuleAllowed('redirect', origin)) return false;
-    recordBlocked('redirect', url, { origin });
-    showToast(trEngine('toast_redirect', { host: displayHost(origin) }));
-    console.warn('[AdsControl] blocked redirect via', source, url);
-    return true;
-  }
-
-  let locationProto = null;
-  try { locationProto = window.Location?.prototype; } catch (_) {}
-  if (locationProto) {
-    try {
-      const originalAssign = locationProto.assign;
-      if (typeof originalAssign === 'function') locationProto.assign = function(url) {
-        if (shouldBlockRedirect(url, 'location.assign')) return;
-        return originalAssign.call(this, url);
-      };
-    } catch (_) {}
-    try {
-      const originalReplace = locationProto.replace;
-      if (typeof originalReplace === 'function') locationProto.replace = function(url) {
-        if (shouldBlockRedirect(url, 'location.replace')) return;
-        return originalReplace.call(this, url);
-      };
-    } catch (_) {}
-    try {
-      const desc = Object.getOwnPropertyDescriptor(locationProto, 'href');
-      if (desc?.get && desc?.set) {
-        const originalSetter = desc.set;
-        Object.defineProperty(location, 'href', {
-          get: desc.get,
-          set(url) {
-            if (shouldBlockRedirect(url, 'location.href')) return;
-            return originalSetter.call(this, url);
-          },
-          configurable: true,
-        });
-      }
-    } catch (_) {}
   }
 
   document.addEventListener('submit', (e) => {
@@ -1884,8 +1571,6 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
       if (key.startsWith('meta-refresh|')) restoreBlockedMetaRefreshesForOrigin(key.slice('meta-refresh|'.length));
       if (key === `click-overlay|${currentOrigin}`) {
         restoreAllClickOverlays();
-        overlayPendingActivationUntil = 0;
-        overlaySuppressionUntil = 0;
         overlayAttackPersistent = false;
         lastOverlayActivationTelemetryAt = 0;
       }
@@ -1896,7 +1581,7 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
     const overlayPolicyChanged = clickOverlayRulesChanged(oldAllow, allowRules);
     if (oldMode !== settings.smartPlayerMode || iframePolicyChanged) rescanIframes();
     if (metaPolicyChanged) rescanMetaRefreshes();
-    if (overlayPolicyChanged && !isRuleAllowed('click-overlay', currentOrigin)) scheduleOverlayScan(0);
+    if (overlayPolicyChanged && !isRuleAllowed('click-overlay', currentOrigin)) inspectKnownClickOverlay('policy-change');
   }
 
   function applyControlCommand(command) {
