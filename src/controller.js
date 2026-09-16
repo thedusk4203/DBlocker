@@ -113,7 +113,7 @@
     const mac = String(envelope.mac || '');
 
     if (!Number.isSafeInteger(seq) || seq <= lastTelemetrySeq || seq > Number.MAX_SAFE_INTEGER) return null;
-    if (!['blocked', 'openPopup', 'overlayActivation', 'authActivation'].includes(type)) return null;
+    if (!['blocked', 'openPopup', 'overlayActivation', 'allowedNewContext'].includes(type)) return null;
     if (!body || body.length > 32768 || !mac || mac.length > 256) return null;
 
     const message = `${seq}\n${type}\n${body}`;
@@ -198,17 +198,18 @@
       return;
     }
 
-    if (verified.type === 'authActivation') {
+    if (verified.type === 'allowedNewContext') {
+      const kind = String(verified.payload?.kind || '');
       const origin = S.normalizeHttpOrigin(verified.payload?.origin);
-      const eventType = String(verified.payload?.eventType || '').slice(0, 32);
       const at = Number(verified.payload?.at);
-      if (!origin || !/^(?:pointerdown|mousedown|touchstart|click)$/.test(eventType)) return;
+      if (kind !== 'form' || !origin || !Number.isFinite(at)) return;
       chrome.runtime.sendMessage({
-        type: 'ADS_AUTH_ACTIVATION',
-        activation: { origin, eventType, at: Number.isFinite(at) ? at : Date.now() },
+        type: 'ADS_ALLOWED_NEW_CONTEXT',
+        intent: { kind, origin, at },
       }).catch(() => {});
       return;
     }
+
 
     if (verified.type === 'openPopup') {
       const focusOrigin = S.normalizeHttpOrigin(verified.payload?.focusOrigin);

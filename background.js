@@ -15,12 +15,12 @@ const aesKeyCache = new Map();
 const tabStateCache = new Map();
 const tabFlushTimers = new Map();
 const overlayPopunderQuarantine = new Map();
-const authPopupBypassUntil = new Map();
+const popupRedirectGuards = new Map();
 const recentChildTabsByOpener = new Map();
+const allowedFormNewContextIntents = new Map();
 const OVERLAY_POPUNDER_QUARANTINE_MS = 1800;
-const AUTH_POPUP_BYPASS_MS = 2600;
-const QUARANTINE_CLOSE_DELAY_MS = 450;
-const AUTH_POPUP_URL_RE = /(?:^|[\s./?&=_-])(?:login|log[\s_-]?in|signin|sign[\s_-]?in|signup|sign[\s_-]?up|register|registration|auth|oauth|authorize|account|accounts|đăng\s*nhập|dang\s*nhap|đăng\s*k[ýy]|dang\s*ky)(?:$|[\s./?&=_-])/i;
+const FORM_NEW_CONTEXT_INTENT_MS = 2500;
+const QUARANTINE_CLOSE_DELAY_MS = 800;
 let allowRulesCache = new Set();
 
 function tabStateStorageKey(tabId) {
@@ -45,12 +45,12 @@ function randomHex(length = 16) {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-function rememberRecentChildTab(openerTabId, tabId) {
+function rememberRecentChildTab(openerTabId, tabId, initialUrl = '') {
   if (!Number.isInteger(openerTabId) || !Number.isInteger(tabId)) return;
   const now = Date.now();
   const list = (recentChildTabsByOpener.get(openerTabId) || [])
-    .filter((entry) => now - entry.at <= OVERLAY_POPUNDER_QUARANTINE_MS);
-  list.push({ tabId, at: now });
+    .filter((entry) => now - entry.at <= OVERLAY_POPUNDER_QUARANTINE_MS && entry.tabId !== tabId);
+  list.push({ tabId, at: now, initialUrl: String(initialUrl || '').slice(0, 2048) });
   recentChildTabsByOpener.set(openerTabId, list.slice(-8));
 }
 
@@ -70,49 +70,284 @@ function armOverlayPopunderQuarantine(tabId) {
   // child tab a few milliseconds before authenticated activation telemetry reaches
   // the worker. Close recently-created children retroactively for this opener.
   for (const entry of consumeRecentChildTabs(tabId)) {
-    chrome.tabs.remove(entry.tabId).catch(() => {});
+    closeQuarantinedChild(tabId, entry.tabId, entry.initialUrl).catch(() => {});
   }
 }
 
-function armAuthPopupBypass(tabId) {
-  if (!Number.isInteger(tabId)) return;
-  authPopupBypassUntil.set(tabId, Date.now() + AUTH_POPUP_BYPASS_MS);
-  // A trusted auth gesture supersedes any stale quarantine left from a previous
-  // click. A newly-created tab is still checked for auth-like destination below.
-  overlayPopunderQuarantine.delete(tabId);
+function urlOrigin(rawUrl) {
+  return S.normalizeHttpOrigin(rawUrl);
 }
 
-function isLikelyAuthPopupUrl(rawUrl) {
-  const text = String(rawUrl || '').trim();
-  if (!text) return false;
-  if (text === 'about:blank') return false;
-  try {
-    const parsed = new URL(text);
-    return AUTH_POPUP_URL_RE.test(`${parsed.hostname} ${parsed.pathname} ${parsed.search}`.toLowerCase());
-  } catch (_) {
-    return AUTH_POPUP_URL_RE.test(text.toLowerCase());
+function isPopupAllowedOrigin(origin) {
+  return !!(origin && allowRulesCache.has(ruleKey('popup', origin)));
+}
+
+function isRedirectAllowedOrigin(origin) {
+  return !!(origin && allowRulesCache.has(ruleKey('redirect', origin)));
+}
+
+function isFormAllowedOrigin(origin) {
+  return !!(origin && allowRulesCache.has(ruleKey('form', origin)));
+}
+
+function allowedPopupOriginFor(rawUrl, fallbackUrl = '') {
+  const origin = urlOrigin(rawUrl) || urlOrigin(fallbackUrl);
+  return isPopupAllowedOrigin(origin) ? origin : '';
+}
+
+function shouldPreservePopupNavigation(initialUrl, candidateUrl, openerUrl = '') {
+  const initialText = String(initialUrl || '').trim();
+  const initialOrigin = allowedPopupOriginFor(
+    initialText && initialText !== 'about:blank' ? initialText : '',
+    (!initialText || initialText === 'about:blank') ? openerUrl : '',
+  );
+  const candidateOrigin = urlOrigin(candidateUrl);
+
+  // If we have a concrete final destination, it governs the decision. An ALLOW
+  // for the initial popup origin does not implicitly allow a later cross-origin
+  // server/client redirect. That final origin needs popup|origin or redirect|origin.
+  if (candidateOrigin) {
+    if (isPopupAllowedOrigin(candidateOrigin)) return true;
+    if (initialOrigin && candidateOrigin === initialOrigin) return true;
+    if (initialOrigin && isRedirectAllowedOrigin(candidateOrigin)) return true;
+    return false;
   }
+
+  // Blank-first popups may be preserved temporarily, but are guarded until their
+  // first committed HTTP(S) destination is observed.
+  return !!initialOrigin;
 }
 
-async function shouldPreserveAuthPopup(openerTabId, childTabId) {
-  const bypassUntil = authPopupBypassUntil.get(openerTabId) || 0;
-  if (Date.now() > bypassUntil) return false;
+function shouldPreserveFormNavigation(allowedOrigin, candidateUrl) {
+  const candidateOrigin = urlOrigin(candidateUrl);
+  if (!candidateOrigin) return !!allowedOrigin;
+  if (candidateOrigin === allowedOrigin) return true;
+  return isRedirectAllowedOrigin(candidateOrigin);
+}
+
+function registerPopupRedirectGuard(childTabId, openerTabId, allowedOrigin, sourceType = 'popup') {
+  if (!Number.isInteger(childTabId) || !Number.isInteger(openerTabId) || !allowedOrigin) return;
+  const kind = sourceType === 'form' ? 'form' : 'popup';
+  popupRedirectGuards.set(childTabId, {
+    openerTabId,
+    allowedOrigin,
+    sourceType: kind,
+    createdAt: Date.now(),
+  });
+}
+
+function pruneAllowedFormIntents(openerTabId, now = Date.now()) {
+  const list = (allowedFormNewContextIntents.get(openerTabId) || [])
+    .filter((entry) => now - Number(entry.at || 0) <= FORM_NEW_CONTEXT_INTENT_MS);
+  if (list.length) allowedFormNewContextIntents.set(openerTabId, list);
+  else allowedFormNewContextIntents.delete(openerTabId);
+  return list;
+}
+
+function rememberAllowedFormIntent(openerTabId, origin, at = Date.now()) {
+  const normalizedOrigin = urlOrigin(origin);
+  const now = Date.now();
+  const eventAt = Number(at);
+  if (!Number.isInteger(openerTabId) || !normalizedOrigin || !isFormAllowedOrigin(normalizedOrigin)) return false;
+  if (!Number.isFinite(eventAt) || eventAt > now + 1000 || now - eventAt > FORM_NEW_CONTEXT_INTENT_MS) return false;
+  const list = pruneAllowedFormIntents(openerTabId, now)
+    .filter((entry) => entry.origin !== normalizedOrigin);
+  list.push({ origin: normalizedOrigin, at: eventAt });
+  allowedFormNewContextIntents.set(openerTabId, list.slice(-8));
+  return true;
+}
+
+function hasAllowedFormIntent(openerTabId, origin, now = Date.now()) {
+  const normalizedOrigin = urlOrigin(origin);
+  if (!normalizedOrigin || !isFormAllowedOrigin(normalizedOrigin)) return false;
+  return pruneAllowedFormIntents(openerTabId, now).some((entry) => entry.origin === normalizedOrigin);
+}
+
+function consumeAllowedFormIntent(openerTabId, origin, allowRedirectMatch = false) {
+  const normalizedOrigin = urlOrigin(origin);
+  if (!normalizedOrigin) return '';
+  const list = pruneAllowedFormIntents(openerTabId);
+  let index = list.findIndex((entry) => entry.origin === normalizedOrigin && isFormAllowedOrigin(entry.origin));
+  if (index < 0 && allowRedirectMatch && isRedirectAllowedOrigin(normalizedOrigin)) {
+    for (let i = list.length - 1; i >= 0; i -= 1) {
+      if (isFormAllowedOrigin(list[i].origin)) { index = i; break; }
+    }
+  }
+  if (index < 0) return '';
+  const [entry] = list.splice(index, 1);
+  if (list.length) allowedFormNewContextIntents.set(openerTabId, list);
+  else allowedFormNewContextIntents.delete(openerTabId);
+  return entry.origin;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
+}
+
+async function getChildCandidateUrl(childTabId) {
+  if (!Number.isInteger(childTabId)) return '';
+  // Let pendingUrl/URL settle so a same-origin trampoline cannot win validation
+  // merely because tabs.onCreated fired before the first navigation committed.
+  await sleep(QUARANTINE_CLOSE_DELAY_MS);
   try {
-    // Give about:blank/name-target auth popups a short moment to navigate to the
-    // real login/OAuth URL before deciding whether quarantine should close them.
-    await new Promise((resolve) => setTimeout(resolve, QUARANTINE_CLOSE_DELAY_MS));
     const tab = await chrome.tabs.get(childTabId);
-    const candidate = tab?.pendingUrl || tab?.url || '';
-    return isLikelyAuthPopupUrl(candidate);
+    return String(tab?.pendingUrl || tab?.url || '').slice(0, 2048);
+  } catch (_) {
+    return '';
+  }
+}
+
+async function getOpenerUrl(openerTabId) {
+  try {
+    const opener = await chrome.tabs.get(openerTabId);
+    return opener?.pendingUrl || opener?.url || '';
+  } catch (_) {
+    return '';
+  }
+}
+
+async function validateAllowedPopupChild(openerTabId, childTabId, initialUrl = '') {
+  const openerUrl = await getOpenerUrl(openerTabId);
+  const initialText = String(initialUrl || '').trim();
+  const allowedOrigin = allowedPopupOriginFor(
+    initialText && initialText !== 'about:blank' ? initialText : '',
+    (!initialText || initialText === 'about:blank') ? openerUrl : '',
+  );
+  if (!allowedOrigin) return false;
+
+  // Arm before waiting so onCommitted can catch even a very fast server redirect.
+  registerPopupRedirectGuard(childTabId, openerTabId, allowedOrigin, 'popup');
+  const candidate = await getChildCandidateUrl(childTabId);
+  if (!shouldPreservePopupNavigation(initialUrl, candidate, openerUrl)) {
+    popupRedirectGuards.delete(childTabId);
+    await chrome.tabs.remove(childTabId).catch(() => {});
+    return true;
+  }
+  return false;
+}
+
+async function validateAllowedFormChild(openerTabId, childTabId, initialUrl = '') {
+  const initialOrigin = urlOrigin(initialUrl);
+  let allowedOrigin = initialOrigin && hasAllowedFormIntent(openerTabId, initialOrigin)
+    ? consumeAllowedFormIntent(openerTabId, initialOrigin)
+    : '';
+
+  if (allowedOrigin) registerPopupRedirectGuard(childTabId, openerTabId, allowedOrigin, 'form');
+  const candidate = await getChildCandidateUrl(childTabId);
+  const candidateOrigin = urlOrigin(candidate);
+
+  if (!allowedOrigin && candidateOrigin) {
+    allowedOrigin = consumeAllowedFormIntent(openerTabId, candidateOrigin, true);
+    if (allowedOrigin) registerPopupRedirectGuard(childTabId, openerTabId, allowedOrigin, 'form');
+  }
+  if (!allowedOrigin) return false;
+
+  if (!shouldPreserveFormNavigation(allowedOrigin, candidate)) {
+    popupRedirectGuards.delete(childTabId);
+    await chrome.tabs.remove(childTabId).catch(() => {});
+    return true;
+  }
+  return false;
+}
+
+async function closeQuarantinedChild(openerTabId, childTabId, initialUrl = '') {
+  try {
+    const openerUrl = await getOpenerUrl(openerTabId);
+    const initialText = String(initialUrl || '').trim();
+    const popupAllowedOrigin = allowedPopupOriginFor(
+      initialText && initialText !== 'about:blank' ? initialText : '',
+      (!initialText || initialText === 'about:blank') ? openerUrl : '',
+    );
+
+    // Register a provisional guard before waiting for the candidate URL so a
+    // fast HTTP redirect cannot race ahead of background validation.
+    if (popupAllowedOrigin) registerPopupRedirectGuard(childTabId, openerTabId, popupAllowedOrigin, 'popup');
+    let provisionalFormOrigin = '';
+    if (!popupAllowedOrigin && initialText && initialText !== 'about:blank' && hasAllowedFormIntent(openerTabId, initialText)) {
+      provisionalFormOrigin = consumeAllowedFormIntent(openerTabId, initialText);
+      if (provisionalFormOrigin) registerPopupRedirectGuard(childTabId, openerTabId, provisionalFormOrigin, 'form');
+    }
+
+    const candidate = await getChildCandidateUrl(childTabId);
+    const candidateOrigin = urlOrigin(candidate);
+
+    // A user-trusted form submission is a distinct ALLOW type. Preserve it only
+    // when the signed MAIN->ISOLATED bridge observed a real trusted submit event
+    // for an origin that still has form|origin ALLOW. This prevents a popup from
+    // borrowing a form rule while avoiding quarantine false positives.
+    if (!popupAllowedOrigin) {
+      const formAllowedOrigin = provisionalFormOrigin || (candidateOrigin
+        ? consumeAllowedFormIntent(openerTabId, candidateOrigin, true)
+        : '');
+      if (formAllowedOrigin) {
+        registerPopupRedirectGuard(childTabId, openerTabId, formAllowedOrigin, 'form');
+        if (shouldPreserveFormNavigation(formAllowedOrigin, candidate)) return false;
+        popupRedirectGuards.delete(childTabId);
+        await chrome.tabs.remove(childTabId).catch(() => {});
+        return true;
+      }
+    }
+
+    if (shouldPreservePopupNavigation(initialUrl, candidate, openerUrl)) {
+      const candidateAllowedOrigin = allowedPopupOriginFor(candidate);
+      const guardOrigin = popupAllowedOrigin || candidateAllowedOrigin;
+      if (guardOrigin) registerPopupRedirectGuard(childTabId, openerTabId, guardOrigin, 'popup');
+      return false;
+    }
+
+    await chrome.tabs.remove(childTabId).catch(() => {});
+    popupRedirectGuards.delete(childTabId);
+    return true;
   } catch (_) {
     return false;
   }
 }
 
-async function closeQuarantinedChildUnlessAuth(openerTabId, childTabId) {
-  if (await shouldPreserveAuthPopup(openerTabId, childTabId)) return false;
-  await chrome.tabs.remove(childTabId).catch(() => {});
-  return true;
+const childValidationInFlight = new Set();
+
+function isWindowActive(map, tabId, now = Date.now()) {
+  const until = map.get(tabId) || 0;
+  if (!until) return false;
+  if (now <= until) return true;
+  map.delete(tabId);
+  return false;
+}
+
+function handleCreatedChildTab(openerTabId, childTabId, initialUrl = '') {
+  if (!Number.isInteger(openerTabId) || !Number.isInteger(childTabId)) return;
+  rememberRecentChildTab(openerTabId, childTabId, initialUrl);
+
+  const now = Date.now();
+  const quarantineActive = isWindowActive(overlayPopunderQuarantine, openerTabId, now);
+  const initialOrigin = urlOrigin(initialUrl);
+  const initialOriginAllowed = isPopupAllowedOrigin(initialOrigin);
+  const formIntentActive = !!(initialOrigin && hasAllowedFormIntent(openerTabId, initialOrigin));
+  const blankFirst = !String(initialUrl || '').trim() || String(initialUrl || '').trim() === 'about:blank';
+  if (!quarantineActive && !initialOriginAllowed && !formIntentActive && !blankFirst) return;
+  if (initialOriginAllowed) registerPopupRedirectGuard(childTabId, openerTabId, initialOrigin, 'popup');
+
+  // tabs.onCreated often reports a blank URL before webNavigation reports the
+  // real target. Do not let that blank notification monopolize the per-child
+  // validation slot, otherwise the later concrete target could miss its guard.
+  if (!quarantineActive && blankFirst && !initialOriginAllowed) {
+    validateAllowedPopupChild(openerTabId, childTabId, initialUrl).catch(() => {});
+    return;
+  }
+
+  // Both tabs.onCreated and webNavigation.onCreatedNavigationTarget may report
+  // the same concrete child. Validate it only once. Allowed popup origins are
+  // guarded for cross-origin redirects so popup|origin never becomes redirect|*.
+  const key = `${openerTabId}:${childTabId}`;
+  if (childValidationInFlight.has(key)) return;
+  childValidationInFlight.add(key);
+  const task = quarantineActive
+    ? closeQuarantinedChild(openerTabId, childTabId, initialUrl)
+    : (formIntentActive
+      ? validateAllowedFormChild(openerTabId, childTabId, initialUrl)
+      : validateAllowedPopupChild(openerTabId, childTabId, initialUrl));
+  Promise.resolve(task)
+    .catch(() => {})
+    .finally(() => childValidationInFlight.delete(key));
 }
 
 function enqueueTab(tabId, task) {
@@ -328,6 +563,17 @@ async function removeOlderFrameRecordsForTab(tabId, createdAt, keepStorageKey) {
   if (stale.length) await chrome.storage.session.remove(stale);
 }
 
+async function removeSupersededFrameRecords(tabId, frameId, documentId, keepStorageKey) {
+  const records = await getFrameRecords(tabId);
+  const stale = records
+    .filter((record) =>
+      record.storageKey !== keepStorageKey
+      && Number(record.frameId) === Number(frameId)
+      && String(record.documentId || '') !== String(documentId || ''))
+    .map((record) => record.storageKey);
+  if (stale.length) await chrome.storage.session.remove(stale);
+}
+
 function dispatchEncryptedControl(eventName, detail) {
   document.dispatchEvent(new CustomEvent(eventName, { detail }));
 }
@@ -440,6 +686,10 @@ async function prepareFrame(sender, page) {
   if (!policy.protectionEnabled) return { ok: false, dormant: true };
 
   const storageKey = frameStorageKey(tabId, documentId, frameId);
+  // A Chromium frameId can be reused by a later document in the same long-lived
+  // tab. Remove superseded records eagerly so SPA/player iframe churn does not
+  // accumulate stale secrets/config in storage.session.
+  await removeSupersededFrameRecords(tabId, frameId, documentId, storageKey);
   const existingData = await chrome.storage.session.get(storageKey);
   const existing = existingData[storageKey];
 
@@ -640,16 +890,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return { ok: true };
     }
 
-    if (message.type === 'ADS_AUTH_ACTIVATION') {
+    if (message.type === 'ADS_ALLOWED_NEW_CONTEXT') {
       const tabId = sender.tab?.id;
-      if (!Number.isInteger(tabId)) return { ok: false };
-      const activation = message.activation;
-      const origin = S.normalizeHttpOrigin(activation?.origin);
-      const eventType = String(activation?.eventType || '');
-      if (!origin || !/^(?:pointerdown|mousedown|touchstart|click)$/.test(eventType)) return { ok: false };
-      armAuthPopupBypass(tabId);
-      return { ok: true };
+      const intent = message.intent;
+      const kind = String(intent?.kind || '');
+      const origin = S.normalizeHttpOrigin(intent?.origin);
+      const at = Number(intent?.at);
+      if (!Number.isInteger(tabId) || kind !== 'form' || !origin || !Number.isFinite(at)) return { ok: false };
+      return { ok: rememberAllowedFormIntent(tabId, origin, at) };
     }
+
 
     if (message.type === 'ADS_GET_TAB_STATE') {
       const tabId = Number(message.tabId);
@@ -717,39 +967,63 @@ if (chrome.webNavigation?.onCreatedNavigationTarget) {
     const sourceTabId = details?.sourceTabId;
     const newTabId = details?.tabId;
     if (!Number.isInteger(sourceTabId) || !Number.isInteger(newTabId)) return;
-
-    rememberRecentChildTab(sourceTabId, newTabId);
-    const armedUntil = overlayPopunderQuarantine.get(sourceTabId) || 0;
-    if (!armedUntil) return;
-    overlayPopunderQuarantine.delete(sourceTabId);
-    if (Date.now() > armedUntil) return;
-    recentChildTabsByOpener.delete(sourceTabId);
-    closeQuarantinedChildUnlessAuth(sourceTabId, newTabId).catch(() => {});
+    handleCreatedChildTab(sourceTabId, newTabId, details?.url || '');
   });
 }
+
+async function handleGuardedCommittedNavigation(details) {
+  const tabId = details?.tabId;
+  const frameId = details?.frameId;
+  if (!Number.isInteger(tabId) || frameId !== 0) return false;
+  const guard = popupRedirectGuards.get(tabId);
+  if (!guard) return false;
+
+  const origin = urlOrigin(details?.url || '');
+  if (!origin) return false;
+
+  const sourceAllowsOrigin = guard.sourceType === 'form'
+    ? origin === guard.allowedOrigin
+    : (origin === guard.allowedOrigin || isPopupAllowedOrigin(origin));
+  if (sourceAllowsOrigin || isRedirectAllowedOrigin(origin)) {
+    // Follow an explicitly allowed chain and keep guarding later redirects for
+    // the lifetime of the child tab. This closes delayed (7s+) client redirects
+    // without blocking a later deliberate user navigation.
+    guard.allowedOrigin = origin;
+    popupRedirectGuards.set(tabId, guard);
+    return false;
+  }
+
+  const qualifiers = Array.isArray(details?.transitionQualifiers) ? details.transitionQualifiers : [];
+  const redirectLike = qualifiers.includes('server_redirect') || qualifiers.includes('client_redirect');
+  if (!redirectLike) {
+    // A cross-origin committed navigation with no redirect qualifier is treated
+    // as a deliberate navigation inside the child. Stop carrying the original
+    // popup/form guard into unrelated browsing.
+    popupRedirectGuards.delete(tabId);
+    return false;
+  }
+
+  popupRedirectGuards.delete(tabId);
+  await chrome.tabs.remove(tabId).catch(() => {});
+  return true;
+}
+
+chrome.webNavigation?.onCommitted?.addListener((details) => {
+  handleGuardedCommittedNavigation(details).catch(() => {});
+});
 
 chrome.tabs.onCreated.addListener((tab) => {
   const newTabId = tab?.id;
   const openerTabId = tab?.openerTabId;
   if (!Number.isInteger(newTabId) || !Number.isInteger(openerTabId)) return;
-
-  rememberRecentChildTab(openerTabId, newTabId);
-  const armedUntil = overlayPopunderQuarantine.get(openerTabId) || 0;
-  if (!armedUntil) return;
-  overlayPopunderQuarantine.delete(openerTabId);
-  if (Date.now() > armedUntil) return;
-  recentChildTabsByOpener.delete(openerTabId);
-
-  // This guard is armed only by authenticated click-overlay telemetry and lasts
-  // for less than two seconds. Trusted login/register gestures get a narrow URL-
-  // checked exception so real auth windows are not mistaken for escaped popunders.
-  closeQuarantinedChildUnlessAuth(openerTabId, newTabId).catch(() => {});
+  handleCreatedChildTab(openerTabId, newTabId, tab?.pendingUrl || tab?.url || '');
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   overlayPopunderQuarantine.delete(tabId);
-  authPopupBypassUntil.delete(tabId);
+  popupRedirectGuards.delete(tabId);
   recentChildTabsByOpener.delete(tabId);
+  allowedFormNewContextIntents.delete(tabId);
   for (const [openerTabId, entries] of recentChildTabsByOpener) {
     const next = entries.filter((entry) => entry.tabId !== tabId);
     if (next.length) recentChildTabsByOpener.set(openerTabId, next);

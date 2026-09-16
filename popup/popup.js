@@ -31,7 +31,6 @@
     blockedTotal: document.getElementById('blockedTotal'),
     blockedTotalLabel: document.getElementById('blockedTotalLabel'),
     blockedSummary: document.getElementById('blockedSummary'),
-    brandSub: document.getElementById('brandSub'),
     currentSiteEyebrow: document.getElementById('currentSiteEyebrow'),
   };
 
@@ -129,7 +128,6 @@
 
   function renderHeader() {
     const lang = currentLang();
-    if (els.brandSub) els.brandSub.textContent = lang === 'vi' ? 'Bảo vệ quyền riêng tư' : lang === 'zh' ? '隐私保护' : 'Privacy protection';
     if (els.currentSiteEyebrow) els.currentSiteEyebrow.textContent = lang === 'vi' ? 'Trang web hiện tại' : lang === 'zh' ? '当前网站' : 'Current website';
     if (els.langSelect) {
       els.langSelect.value = currentLang();

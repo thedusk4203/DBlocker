@@ -873,7 +873,7 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
   const KNOWN_CLICK_OVERLAY_IDS = new Set(['dontfoid']);
   const KNOWN_CLICK_OVERLAY_VENDOR_RE = /(?:^|\.)acscdn\.com$/i;
   const KNOWN_CLICK_OVERLAY_SCRIPT_RE = /\/(?:script\/)?(?:aclib|suv5)\.js(?:[?#]|$)/i;
-  const AUTH_INTENT_RE = /(?:^|[\s_\-/.])(?:login|log[\s_-]?in|signin|sign[\s_-]?in|signup|sign[\s_-]?up|register|registration|account|auth|oauth|đăng\s*nhập|dang\s*nhap|đăng\s*k[ýy]|dang\s*ky|登录|登入|注册)(?:$|[\s_\-/.?&#=])/i;
+  const AUTH_INTENT_RE = /(?:^|[\s_\-/.])(?:login|log[\s_-]?in|signin|sign[\s_-]?in|signup|sign[\s_-]?up|register|registration|account|accounts|auth|oauth|authorize|session|sso|identity|credential|đăng\s*nhập|dang\s*nhap|đăng\s*k[ýy]|dang\s*ky|登录|登入|注册)(?:$|[\s_\-/.?&#=])/i;
   const PLAYER_UI_HINT_RE = /(?:^|[\s_-])(?:video|player|jwplayer|jw-|plyr|video-js|vjs|shaka|clappr|controls?|poster|media)(?:$|[\s_-])/i;
   const LEGIT_DIALOG_SELECTOR = 'dialog,[role="dialog"],[aria-modal="true"],[role="alertdialog"],form';
   const blockedOverlayState = new WeakMap();
@@ -985,8 +985,6 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
 
   installKnownVendorCaptureListenerGuard();
 
-  let lastTrustedAuthActivationUntil = 0;
-  let lastAuthActivationTelemetryAt = 0;
 
   function elementIsVisiblyRendered(el) {
     if (!el || el.nodeType !== 1) return false;
@@ -1018,62 +1016,30 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
     return parts.join(' ').toLowerCase();
   }
 
-  function isAuthUiTarget(target) {
-    let control = null;
+  // Security note: page-controlled labels/attributes are not a trust boundary.
+  // DBlocker intentionally has no automatic popup/OAuth bypass derived from DOM
+  // "login/auth" hints. New-context auth flows use the same popup/form rules as
+  // every other navigation and can be explicitly allowed by the user.
+
+  function isMeaningfulLegitimateDialog(candidate) {
+    if (!elementIsVisiblyRendered(candidate)) return false;
     try {
-      control = target?.nodeType === 1
-        ? target.closest?.('a,button,input,[role="button"],[role="link"],form')
-        : target?.parentElement?.closest?.('a,button,input,[role="button"],[role="link"],form');
-    } catch (_) {}
-    if (!control) return false;
-    const blob = authIntentBlob(control);
-    if (AUTH_INTENT_RE.test(blob)) return true;
-    try {
-      const form = control.tagName === 'FORM' ? control : control.closest?.('form');
-      if (form) {
-        if (form.querySelector('input[type="password"]')) return true;
-        if (AUTH_INTENT_RE.test(authIntentBlob(form))) return true;
+      if (candidate.matches?.('form')) {
+        return !!candidate.querySelector?.('input[type="password"],input[type="email"],button[type="submit"],input[type="submit"]');
       }
-    } catch (_) {}
-    return false;
-  }
-
-  function authUrlLooksLegitimate(url) {
-    const parsed = toURL(url);
-    if (!parsed) return false;
-    const blob = `${parsed.hostname} ${parsed.pathname} ${parsed.search}`.toLowerCase();
-    return AUTH_INTENT_RE.test(blob);
-  }
-
-  function noteTrustedAuthActivation(event) {
-    if (!protectionEnabled || event?.isTrusted !== true) return;
-    if (!isAuthUiTarget(event.target)) return;
-    const now = Date.now();
-    lastTrustedAuthActivationUntil = now + 1800;
-
-    // Notify the trusted extension side early (pointerdown/mousedown happens before
-    // the site's click handler can call window.open). Background uses this only to
-    // avoid closing a legitimate auth popup that happens to occur while an older
-    // overlay quarantine is still armed.
-    if (now - lastAuthActivationTelemetryAt >= 250) {
-      lastAuthActivationTelemetryAt = now;
-      emitTelemetry('authActivation', {
-        origin: currentOrigin,
-        eventType: String(event?.type || '').slice(0, 32),
-        at: now,
-      });
+      if (!candidate.matches?.('dialog,[role="dialog"],[aria-modal="true"],[role="alertdialog"]')) return false;
+      const text = String(candidate.textContent || '').replace(/\s+/g, ' ').trim();
+      const interactive = !!candidate.querySelector?.('button,input,select,textarea,a[href]');
+      if (!interactive && text.length <= 8) return false;
+      const style = getComputedStyle(candidate);
+      const alpha = colorAlpha(style.backgroundColor);
+      const opacity = Number.parseFloat(style.opacity || '1');
+      // Empty/transparent page-controlled "dialog" labels are not trusted.
+      if ((!Number.isFinite(opacity) || opacity <= 0.08) && alpha <= 0.08 && !interactive) return false;
+      return true;
+    } catch (_) {
+      return false;
     }
-  }
-
-  function hasFreshTrustedAuthActivation() {
-    return Date.now() < lastTrustedAuthActivationUntil;
-  }
-
-  function shouldAllowTrustedAuthNavigation(url, target = null) {
-    const directTarget = target && isAuthUiTarget(target);
-    if (!directTarget && !hasFreshTrustedAuthActivation()) return false;
-    if (url == null || String(url).trim() === '' || String(url).trim().toLowerCase() === 'about:blank') return true;
-    return isSameOrigin(url) || authUrlLooksLegitimate(url);
   }
 
   function visibleDialogOrAuthFormExistsNear(el) {
@@ -1091,12 +1057,7 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
     } catch (_) {}
 
     for (const candidate of candidates.slice(0, 24)) {
-      if (!elementIsVisiblyRendered(candidate)) continue;
-      try {
-        if (candidate.matches?.('dialog,[role="dialog"],[aria-modal="true"],[role="alertdialog"]')) return true;
-        if (candidate.querySelector?.('input[type="password"]')) return true;
-        if (AUTH_INTENT_RE.test(authIntentBlob(candidate))) return true;
-      } catch (_) {}
+      if (isMeaningfulLegitimateDialog(candidate)) return true;
     }
     return false;
   }
@@ -1124,20 +1085,11 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
       try {
         const globalCandidates = document.querySelectorAll('dialog[open],[role="dialog"],[aria-modal="true"],[role="alertdialog"],form');
         for (const candidate of Array.from(globalCandidates).slice(0, 32)) {
-          if (!elementIsVisiblyRendered(candidate)) continue;
-          if (candidate.matches?.('dialog[open],[role="dialog"],[aria-modal="true"],[role="alertdialog"]')) return true;
-          if (candidate.querySelector?.('input[type="password"]') || AUTH_INTENT_RE.test(authIntentBlob(candidate))) return true;
+          if (isMeaningfulLegitimateDialog(candidate)) return true;
         }
       } catch (_) {}
     }
     return false;
-  }
-
-  // Track a short, trusted auth gesture window before site handlers execute.
-  // This lets genuine login/register flows open their own dialog/OAuth window while
-  // keeping generic same-origin /go popups blocked.
-  for (const type of ['pointerdown', 'mousedown', 'touchstart', 'click']) {
-    window.addEventListener(type, noteTrustedAuthActivation, { capture: true, passive: true });
   }
 
   function colorAlpha(value) {
@@ -1397,6 +1349,20 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
     blockedOverlayState.set(el, state);
     blockedOverlayElements.add(el);
 
+    // Child/player frames do not run generic fullscreen polling. If a strong
+    // signature is actually blocked there, start a cheap enforcement-only timer so
+    // a hostile script cannot revive the same node by rewriting inline styles.
+    if (!isTopFrame && !overlayScanTimer) {
+      overlayScanTimer = setInterval(() => {
+        if (!protectionEnabled) return;
+        enforceBlockedClickOverlays();
+        if (!blockedOverlayElements.size && overlayScanTimer) {
+          clearInterval(overlayScanTimer);
+          overlayScanTimer = null;
+        }
+      }, 1000);
+    }
+
     // pointer-events:none is applied first so the layer stops capturing input even
     // if the site races to rewrite display. display:none then removes the visual/
     // hit-test layer without removing the DOM node (avoids recreate/remove loops).
@@ -1447,7 +1413,7 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
   }
 
   function scheduleOverlayScan(delay = 24) {
-    if (!protectionEnabled || overlayScanScheduled) return;
+    if (!isTopFrame || !protectionEnabled || overlayScanScheduled) return;
     overlayScanScheduled = true;
     setTimeout(() => {
       overlayScanScheduled = false;
@@ -1474,10 +1440,6 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
   function emitPersistentOverlayActivation(event) {
     if (!overlayAttackPersistent || !protectionEnabled || isRuleAllowed('click-overlay', currentOrigin)) return;
     if (event?.isTrusted !== true) return;
-    // Do not arm child-tab quarantine for an explicit login/register gesture.
-    // Known acscdn listeners are already suppressed once the attack is verified;
-    // quarantining the legitimate auth popup here would close the user's sign-in UI.
-    if (isAuthUiTarget(event.target)) return;
     const now = Date.now();
     if (now - lastOverlayActivationTelemetryAt < OVERLAY_ACTIVATION_TELEMETRY_DEBOUNCE_MS) return;
     lastOverlayActivationTelemetryAt = now;
@@ -1492,16 +1454,9 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
   function overlayActivationCaptureHandler(event) {
     if (!protectionEnabled) return;
 
-    // Login/register UI must remain usable even after a previously-detected
-    // popunder overlay armed persistent protection for this document. Once the
-    // malicious DOM catcher is gone, an explicit auth gesture should not be
-    // swallowed or quarantined as an ad activation.
-    if (event?.isTrusted === true && isAuthUiTarget(event.target)) {
-      lastTrustedAuthActivationUntil = Date.now() + 1800;
-      return;
-    }
-
     const now = Date.now();
+    // Strong overlay evidence is evaluated before any page-provided semantic hints.
+    // A hostile page cannot bypass the guard by labelling an overlay "login/auth".
     const candidate = findSuspiciousOverlayFromEvent(event);
     if (candidate) {
       // WINDOW capture runs before DOCUMENT capture. Neutralize first, then swallow
@@ -1559,9 +1514,12 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
   function setupClickOverlayGuard() {
     if (!protectionEnabled || overlayObserver) return;
 
-    // pointermove is only a proactive detector. Activation events are intercepted
-    // at window capture with passive:false, before document capture listeners.
-    window.addEventListener('pointermove', overlayPointerMoveHandler, { capture: true, passive: true });
+    // Generic hover/hit-test detection is top-frame only. Child/player frames keep
+    // capture interception and targeted strong-signature mutation checks, avoiding
+    // periodic viewport scans that previously scaled with nested iframe count.
+    if (isTopFrame) {
+      window.addEventListener('pointermove', overlayPointerMoveHandler, { capture: true, passive: true });
+    }
     for (const type of OVERLAY_CAPTURE_EVENTS) {
       window.addEventListener(type, overlayActivationCaptureHandler, { capture: true, passive: false });
     }
@@ -1577,16 +1535,18 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
           needsScan = true;
         }
       }
-      if (needsScan) scheduleOverlayScan(16);
+      if (needsScan && isTopFrame) scheduleOverlayScan(16);
     });
     overlayObserver.observe(document.documentElement || document, { childList: true, subtree: true });
 
-    overlayScanTimer = setInterval(() => {
-      if (!protectionEnabled) return;
-      enforceBlockedClickOverlays();
-      scanTopmostClickOverlay();
-    }, 750);
-    scheduleOverlayScan(0);
+    if (isTopFrame) {
+      overlayScanTimer = setInterval(() => {
+        if (!protectionEnabled) return;
+        enforceBlockedClickOverlays();
+        scanTopmostClickOverlay();
+      }, 750);
+      scheduleOverlayScan(0);
+    }
   }
 
   function stopClickOverlayGuard() {
@@ -1597,8 +1557,6 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
     overlayPendingActivationUntil = 0;
     overlayAttackPersistent = false;
     lastOverlayActivationTelemetryAt = 0;
-    lastTrustedAuthActivationUntil = 0;
-    lastAuthActivationTelemetryAt = 0;
     knownOverlayVendorEvidence = false;
     lastOverlayVendorScanAt = 0;
     window.removeEventListener('pointermove', overlayPointerMoveHandler, true);
@@ -1644,13 +1602,6 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
       recordBlocked('redirect', url, { origin });
       showToast(trEngine('toast_redirect', { host: displayHost(origin) }));
       return null;
-    }
-
-    // A trusted click on an actual login/register control may legitimately open a
-    // same-origin dialog window or an OAuth/auth endpoint. Keep this exception
-    // gesture-bound and short-lived so generic /go -> ad redirect popups stay blocked.
-    if (shouldAllowTrustedAuthNavigation(url)) {
-      return originalWindowOpen.call(window, url, name, features);
     }
 
     if (!rawPopupUrl || rawPopupUrl === 'about:blank') {
@@ -1733,7 +1684,6 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
     }
 
     if (!resolvedHref) return;
-    if (shouldAllowTrustedAuthNavigation(resolvedHref, anchor)) return;
     const newContext = isNewContextTarget(anchor.getAttribute('target'));
     if (newContext && isSuspiciousSameOriginPopup(resolvedHref)) {
       if (isRuleAllowed('tab-under', currentOrigin)) return;
@@ -1837,10 +1787,17 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
     if (!form?.action) return;
     const target = String(form.getAttribute('target') || '').trim().toLowerCase();
     const newContext = target === '_blank' || (target && target !== '_self' && target !== '_top' && target !== '_parent');
-    if (shouldAllowTrustedAuthNavigation(form.action, form)) return;
     if (!newContext && !isCrossOrigin(form.action)) return;
     const origin = getOrigin(form.action, currentOrigin);
-    if (isRuleAllowed('form', origin)) return;
+    if (isRuleAllowed('form', origin)) {
+      // A form rule is type-specific. When a real user submission opens a new
+      // browsing context, send a signed short-lived intent so background
+      // quarantine can distinguish it from a popup to the same origin.
+      if (newContext && e.isTrusted === true) {
+        emitTelemetry('allowedNewContext', { kind: 'form', origin, at: Date.now() });
+      }
+      return;
+    }
     e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
     recordBlocked('form', form.action, { origin });
     showToast(trEngine('toast_form', { host: displayHost(origin) }));

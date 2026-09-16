@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "DBlocker",
   "version": "1.0.0",
-  "description": "User-controlled blocker for intrusive popups, redirects, click overlays, and unwanted embedded frames.",
+  "description": "User-controlled blocker for intrusive popups, redirects, click overlays, outbound navigation traps, and unwanted embedded frames.",
   "permissions": [
     "scripting",
     "webNavigation",
