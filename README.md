@@ -1,41 +1,54 @@
 # DBlocker
 
+[Chrome Web Store — Coming soon](https://chromewebstore.google.com/) · [Firefox Add-ons — Coming soon](https://addons.mozilla.org/firefox/)
+
 DBlocker là browser extension do người dùng điều khiển để giảm popup,
 redirect, click overlay, tab-under và các navigation trap gây khó chịu.
 
-Phiên bản Chromium và Firefox nằm trong cùng repository nhưng được giữ thành
-hai package độc lập. Lý do là hai nền tảng có khác biệt về vòng đời background
-và API extension.
+Hai liên kết store ở trên là trang chờ. Trong thời gian chưa có listing chính
+thức, hãy cài đặt từ artifact trong [GitHub Releases](https://github.com/thedusk4203/DBlocker/releases).
 
-## Cấu trúc repository
+## Cài đặt thủ công từ GitHub Releases
 
-| Thư mục | Nền tảng | Cách nạp thử |
-| --- | --- | --- |
-| [`chromium/`](chromium/) | Chrome / Edge | `chrome://extensions` → **Load unpacked** |
-| [`firefox/`](firefox/) | Firefox desktop | `about:debugging` → **Load Temporary Add-on** |
-| [`LICENSES/`](LICENSES/) | Giấy phép dùng chung | Không phải thư mục để nạp extension |
+Mở mục [Releases](https://github.com/thedusk4203/DBlocker/releases) và tải
+đúng loại file cho trình duyệt bạn đang dùng:
 
-Trong mỗi target, `manifest.json` nằm ở ngay thư mục gốc. Vì vậy khi nạp
-extension, hãy chọn đúng `chromium/` hoặc `firefox/`, không chọn thư mục
-repository bên ngoài.
+### Chrome / Edge — file `.zip`
 
-## Phiên bản hiện tại
+1. Tải asset `.zip` của Chromium.
+2. Giải nén file ZIP vào một thư mục riêng.
+3. Mở `chrome://extensions` hoặc `edge://extensions`.
+4. Bật **Developer mode**.
+5. Chọn **Load unpacked** và chọn thư mục vừa giải nén, nơi có file
+   `manifest.json`.
 
-- Chromium: `1.1.0` — xem [`chromium/README.md`](chromium/README.md).
-- Firefox: `1.1.0` — xem [`firefox/README.md`](firefox/README.md).
+### Firefox — file `.xpi`
 
-Bản Firefox là một port riêng. Source có mặt trong repository không đồng
-nghĩa với việc bản đó đã được Mozilla ký, đã phát hành trên AMO, hoặc đã qua
-toàn bộ kiểm thử hành vi trên Firefox thật.
+1. Tải asset `.xpi` của Firefox.
+2. Mở `about:addons`.
+3. Bấm biểu tượng bánh răng → **Install Add-on From File…**.
+4. Chọn file `.xpi` vừa tải.
 
-## Phát hành
+Nếu Firefox không cho cài file XPI do yêu cầu chữ ký, hãy dùng
+`about:debugging` → **This Firefox** → **Load Temporary Add-on** để nạp thử
+file `manifest.json` từ source Firefox.
 
-Các file ZIP/XPI tạo ra trong quá trình đóng gói là artifact phát hành, không
-nên trộn vào source tree. Khi có bản phát hành chính thức, nên đính kèm chúng
-trong mục **GitHub Releases** và ghi rõ target, version, checksum cùng trạng
-thái kiểm thử.
+## Cách dùng
 
-## Giấy phép
+Mở site cần bảo vệ → bấm icon DBlocker → chuyển **Protection** từ **OFF**
+sang **ON**.
 
-Xem [MPL-2.0](LICENSES/MPL-2.0.txt) và
-[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+DBlocker lưu site key nên rule không phụ thuộc riêng vào một TLD. Khi một
+player bị giữ lại, hãy mở phần quản lý từ placeholder hoặc popup và chọn
+**Always allow** nếu đó là player đáng tin cậy. Persistent ALLOW chỉ được
+chỉnh từ giao diện extension.
+
+## Source trong repository
+
+- [`chromium/`](chromium/) — source target cho Chrome và Edge.
+- [`firefox/`](firefox/) — source target cho Firefox desktop.
+- [`LICENSES/`](LICENSES/) và [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)
+  — giấy phép và thông báo bên thứ ba dùng chung.
+
+Trong mỗi target, `manifest.json` nằm ở thư mục gốc của target. Các file ZIP
+hoặc XPI phát hành không được trộn vào source tree.
