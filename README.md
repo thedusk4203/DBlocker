@@ -5,10 +5,8 @@
 DBlocker là browser extension do người dùng điều khiển để giảm popup,
 redirect, click overlay, tab-under và các navigation trap gây khó chịu.
 
-Hai liên kết store ở trên là trang chờ. Trong thời gian chưa có listing chính
-thức, hãy cài đặt từ artifact trong [GitHub Releases](https://github.com/thedusk4203/DBlocker/releases).
 
-## Cài đặt thủ công từ GitHub Releases
+## OR Cài đặt thủ công từ GitHub Releases
 
 Mở mục [Releases](https://github.com/thedusk4203/DBlocker/releases) và tải
 đúng loại file cho trình duyệt bạn đang dùng:
@@ -43,12 +41,3 @@ player bị giữ lại, hãy mở phần quản lý từ placeholder hoặc pop
 **Always allow** nếu đó là player đáng tin cậy. Persistent ALLOW chỉ được
 chỉnh từ giao diện extension.
 
-## Source trong repository
-
-- [`chromium/`](chromium/) — source target cho Chrome và Edge.
-- [`firefox/`](firefox/) — source target cho Firefox desktop.
-- [`LICENSES/`](LICENSES/) và [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)
-  — giấy phép và thông báo bên thứ ba dùng chung.
-
-Trong mỗi target, `manifest.json` nằm ở thư mục gốc của target. Các file ZIP
-hoặc XPI phát hành không được trộn vào source tree.
