@@ -10,9 +10,9 @@
   const DEFAULT_ENABLED_SITES = Object.freeze([]);
 
   const DEFAULT_SETTINGS = Object.freeze({
-    smartPlayerMode: 'smart',
+    smartPlayerMode: 'compatible',
     showPageToasts: true,
-    language: 'en',
+    language: 'vi',
   });
 
   const MAX_ENABLED_SITES = 5000;
@@ -59,7 +59,7 @@
     }),
   });
 
-  const TYPE_LABELS = TYPE_LABELS_BY_LANG.en;
+  const TYPE_LABELS = TYPE_LABELS_BY_LANG.vi;
 
   const I18N = Object.freeze({
     vi: Object.freeze({
@@ -116,6 +116,7 @@
       copied_status: 'Đã sao chép: {text}',
       cannot_copy_status: 'Không thể sao chép',
       reloading_tab_status: 'Đang tải lại tab...',
+      reload_failed_status: 'Không thể tải lại tab này',
 
       // Options Page
       options_title: 'DBlocker — Cài đặt',
@@ -135,11 +136,11 @@
       section_behavior: 'Smart Player & Thông báo',
       setting_player_mode: 'Chế độ lọc Video Player',
       setting_player_desc: 'Cách xử lý khung phát video trên các trang web.',
-      mode_smart_badge: 'Khuyên dùng',
+      mode_smart_badge: 'Cân bằng',
       mode_smart_detail: 'Tự động nhận diện. Tạm giữ video nghi vấn cho đến khi bạn chọn Luôn cho phép.',
       mode_strict_badge: 'Nghiêm ngặt',
       mode_strict_detail: 'Chặn mọi iframe cho đến khi bạn cho phép thủ công.',
-      mode_compatible_badge: 'Tương thích',
+      mode_compatible_badge: 'Mặc định',
       mode_compatible_detail: 'Tự động cho phép các player có độ tin cậy cao phát ngay.',
       setting_toasts_title: 'Thông báo trên web (Toasts)',
       setting_toasts_desc: 'Hiện thông báo góc màn hình khi DBlocker chặn popup hoặc chuyển hướng.',
@@ -260,6 +261,7 @@
       copied_status: 'Copied: {text}',
       cannot_copy_status: 'Cannot copy',
       reloading_tab_status: 'Reloading tab...',
+      reload_failed_status: 'Could not reload this tab',
 
       // Options Page
       options_title: 'DBlocker — Settings',
@@ -279,11 +281,11 @@
       section_behavior: 'Smart Player & Notifications',
       setting_player_mode: 'Video Player Filter Mode',
       setting_player_desc: 'How to handle video player frames on websites.',
-      mode_smart_badge: 'Recommended',
+      mode_smart_badge: 'Balanced',
       mode_smart_detail: 'Auto-detection. Suspicious players are held until you choose Always allow.',
       mode_strict_badge: 'Strict',
       mode_strict_detail: 'Blocks all iframes until manually allowed.',
-      mode_compatible_badge: 'Compatible',
+      mode_compatible_badge: 'Default',
       mode_compatible_detail: 'Automatically allows trusted high-confidence players immediately.',
       setting_toasts_title: 'In-Page Notifications (Toasts)',
       setting_toasts_desc: 'Show corner notification when DBlocker blocks popups or redirects.',
@@ -404,6 +406,7 @@
       copied_status: '已复制: {text}',
       cannot_copy_status: '无法复制',
       reloading_tab_status: '正在重新加载标签页...',
+      reload_failed_status: '无法重新加载此标签页',
 
       // Options Page
       options_title: 'DBlocker — 设置',
@@ -423,11 +426,11 @@
       section_behavior: '智能播放器与通知',
       setting_player_mode: '视频播放器过滤模式',
       setting_player_desc: '处理网页中视频播放器框架的方式。',
-      mode_smart_badge: '推荐',
+      mode_smart_badge: '平衡',
       mode_smart_detail: '自动识别。可疑播放器会保持暂停，直到您选择“始终允许”。',
       mode_strict_badge: '严格',
       mode_strict_detail: '拦截所有内嵌框架，直到手动允许。',
-      mode_compatible_badge: '兼容',
+      mode_compatible_badge: '默认',
       mode_compatible_detail: '高可信度播放器自动允许直接播放。',
       setting_toasts_title: '网页内浮窗通知 (Toasts)',
       setting_toasts_desc: '当 DBlocker 拦截弹窗或重定向时在屏幕角落显示通知。',
@@ -495,9 +498,9 @@
     }),
   });
 
-  function t(key, lang = 'en', params = {}) {
-    const activeLang = SUPPORTED_LANGUAGES.includes(lang) ? lang : 'en';
-    let text = I18N[activeLang]?.[key] ?? I18N.en?.[key] ?? key;
+  function t(key, lang = 'vi', params = {}) {
+    const activeLang = SUPPORTED_LANGUAGES.includes(lang) ? lang : 'vi';
+    let text = I18N[activeLang]?.[key] ?? I18N.vi?.[key] ?? key;
     if (params && typeof params === 'object') {
       for (const [k, v] of Object.entries(params)) {
         text = text.replace(new RegExp(`\\{${k}\\}`, 'g'), String(v));
@@ -506,8 +509,8 @@
     return text;
   }
 
-  function getTypeLabel(type, lang = 'en') {
-    const activeLang = SUPPORTED_LANGUAGES.includes(lang) ? lang : 'en';
+  function getTypeLabel(type, lang = 'vi') {
+    const activeLang = SUPPORTED_LANGUAGES.includes(lang) ? lang : 'vi';
     return TYPE_LABELS_BY_LANG[activeLang]?.[type] || TYPE_LABELS[type] || type;
   }
 

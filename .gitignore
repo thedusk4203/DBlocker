@@ -1,0 +1,11 @@
+# Generated build artifacts
+**/dist/
+*.zip
+*.xpi
+
+# Local tooling and operating-system files
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+*.log

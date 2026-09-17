@@ -8,7 +8,7 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
 
   let allowRules = [];
   let allowRuleSet = new Set();
-  let settings = { smartPlayerMode: 'smart', showPageToasts: true, language: 'en' };
+  let settings = { smartPlayerMode: 'compatible', showPageToasts: true, language: 'vi' };
   let protectionEnabled = false;
 
   const ENGINE_I18N = Object.freeze({
@@ -87,7 +87,7 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
   });
 
   function trEngine(key, params = {}) {
-    const lang = settings.language || 'en';
+    const lang = settings.language || 'vi';
     let text = ENGINE_I18N[lang]?.[key] ?? ENGINE_I18N.en?.[key] ?? key;
     if (params && typeof params === 'object') {
       for (const [k, v] of Object.entries(params)) {
@@ -1353,7 +1353,7 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
     return null;
   };
 
-  // Chromium exposes the Navigation API from Chrome 102 onward. Unlike attempts
+  // Firefox exposes the Navigation API from Firefox 147 onward. Unlike attempts
   // to overwrite Location.prototype (whose navigation members are unforgeable),
   // the native `navigate` event is fired for legacy programmatic navigations such
   // as location.assign(), location.replace(), and location.href assignments.
@@ -1388,6 +1388,61 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
     }
   } catch (_) {}
 
+  const DISMISS_CONTROL_HINT_RE = /(?:^|[\s._\-:/])(?:close|dismiss|hide|remove|skip(?:\s*ad)?|đóng|dong|tắt|tat)(?:$|[\s._\-:/])/i;
+  const DISMISS_CONTROL_SYMBOL_RE = /(?:^|[\s._\-:/])(?:x|×|✕|✖|✗|╳)(?:$|[\s._\-:/])/i;
+  const DISMISS_CONTROL_TEXT_RE = /^(?:[x×✕✖✗╳]|close|dismiss|hide|remove|skip(?:\s*ad)?|đóng|dong|tắt|tat)$/i;
+
+  function isLikelyDismissControl(target) {
+    let node = target?.nodeType === 1 ? target : target?.parentElement;
+    for (let depth = 0; node && depth < 6; depth += 1, node = node.parentElement) {
+      try {
+        const tag = String(node.tagName || '').toLowerCase();
+        const role = String(node.getAttribute?.('role') || '').toLowerCase();
+        const type = String(node.getAttribute?.('type') || '').toLowerCase();
+        const explicitDismiss = node.hasAttribute?.('data-dismiss')
+          || node.hasAttribute?.('data-bs-dismiss')
+          || node.hasAttribute?.('data-close');
+        const interactive = explicitDismiss
+          || tag === 'button'
+          || tag === 'a'
+          || role === 'button'
+          || (tag === 'input' && ['button', 'submit', 'reset'].includes(type))
+          || typeof node.onclick === 'function'
+          || node.hasAttribute?.('onclick')
+          || node.hasAttribute?.('tabindex');
+        if (!interactive) continue;
+
+        const attrs = [
+          node.id,
+          typeof node.className === 'string' ? node.className : String(node.className || ''),
+          node.name,
+          node.getAttribute?.('name'),
+          node.getAttribute?.('aria-label'),
+          node.getAttribute?.('title'),
+          node.getAttribute?.('data-action'),
+          node.getAttribute?.('data-dismiss'),
+          node.getAttribute?.('data-bs-dismiss'),
+          node.getAttribute?.('data-close'),
+          node.getAttribute?.('onclick'),
+          node.value,
+          node.getAttribute?.('value'),
+        ].filter(Boolean).join(' ');
+        const text = String(node.textContent || node.getAttribute?.('value') || node.value || '')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 80);
+
+        if (explicitDismiss
+            || DISMISS_CONTROL_HINT_RE.test(attrs)
+            || DISMISS_CONTROL_SYMBOL_RE.test(attrs)
+            || DISMISS_CONTROL_HINT_RE.test(text)
+            || DISMISS_CONTROL_SYMBOL_RE.test(text)
+            || DISMISS_CONTROL_TEXT_RE.test(text)) return true;
+      } catch (_) {}
+    }
+    return false;
+  }
+
   function findClosestAnchor(target) {
     if (!target || target.nodeType !== 1 || typeof target.closest !== 'function') return null;
     return target.closest('a');
@@ -1407,6 +1462,7 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
     if (isPassThroughLinkUrl(rawHref)) return;
 
     if (/^javascript:/i.test(rawHref.trim())) {
+      if (e.isTrusted === true && isLikelyDismissControl(anchor)) return;
       e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
       recordBlocked('external-link', rawHref, { origin: 'javascript:' });
       showToast(trEngine('toast_js_link'));
@@ -1547,9 +1603,9 @@ globalThis.DBlockerMainEngine = function DBlockerMainEngine(bootstrap) {
     settings = {
       smartPlayerMode: ['smart', 'strict', 'compatible'].includes(config.settings?.smartPlayerMode)
         ? config.settings.smartPlayerMode
-        : 'smart',
+        : 'compatible',
       showPageToasts: config.settings?.showPageToasts !== false,
-      language: ['vi', 'en', 'zh'].includes(config.settings?.language) ? config.settings.language : 'en',
+      language: ['vi', 'en', 'zh'].includes(config.settings?.language) ? config.settings.language : 'vi',
     };
     protectionEnabled = config.protectionEnabled === true;
 

@@ -1,0 +1,85 @@
+{
+  "manifest_version": 3,
+  "name": "DBlocker",
+  "version": "1.1.0",
+  "description": "User-controlled blocker for intrusive popups, redirects, click overlays, outbound navigation traps, and unwanted embedded frames.",
+  "permissions": [
+    "scripting",
+    "webNavigation",
+    "storage"
+  ],
+  "background": {
+    "scripts": [
+      "src/psl.js",
+      "src/shared.js",
+      "src/page-engine.js",
+      "background.js"
+    ]
+  },
+  "action": {
+    "default_title": "DBlocker",
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_page": "options/options.html",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*/*"
+      ],
+      "js": [
+        "src/shared.js",
+        "src/controller.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true,
+      "match_about_blank": true,
+      "match_origin_as_fallback": true,
+      "world": "ISOLATED"
+    },
+    {
+      "matches": [
+        "*://*/*"
+      ],
+      "js": [
+        "src/firefox-blank-frame-fallback.js"
+      ],
+      "run_at": "document_end",
+      "all_frames": true,
+      "match_about_blank": true,
+      "match_origin_as_fallback": true,
+      "world": "ISOLATED"
+    }
+  ],
+  "host_permissions": [
+    "*://*/*"
+  ],
+  "content_security_policy": {
+    "extension_pages": "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-src 'none'"
+  },
+  "browser_specific_settings": {
+    "gecko_android": {
+      "strict_min_version": "153.0"
+    },
+    "gecko": {
+      "id": "dblocker@dusk4203",
+      "strict_min_version": "153.0",
+      "data_collection_permissions": {
+        "required": [
+          "none"
+        ]
+      }
+    }
+  }
+}

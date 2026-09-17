@@ -3,6 +3,7 @@
 
   const S = globalThis.DBlockerShared || globalThis.AdsControlShared;
   const SUPPORT = globalThis.DBlockerSupport || { links: [], bankAccounts: [] };
+  const extensionApi = globalThis.browser || globalThis.chrome;
   const { parseRuleKey, displayHost, t, getTypeLabel } = S;
 
   const els = {
@@ -71,7 +72,7 @@
   let toastTimeout = null;
 
   function currentLang() {
-    return config.settings?.language || 'en';
+    return config.settings?.language || 'vi';
   }
 
   function tr(key, params) {
@@ -130,31 +131,44 @@
     }
   }
 
-  const ICONS = {
-    tpbank: `<svg class="channel-svg tpbank-svg" viewBox="0 0 28 28" width="24" height="24" fill="none" aria-hidden="true">
-      <path d="M14 2.5L25.5 22.5H2.5L14 2.5Z" fill="#582580"/>
-      <path d="M14 2.5L2.5 22.5L14 15.5L14 2.5Z" fill="#F58220"/>
-      <path d="M14 15.5L2.5 22.5H25.5L14 15.5Z" fill="#752B92"/>
-      <path d="M14 2.5L25.5 22.5L14 15.5L14 2.5Z" fill="#501878"/>
-    </svg>`,
-    paypal: `<svg class="channel-svg paypal-svg" viewBox="0 0 24 24" width="22" height="22" fill="none" aria-hidden="true">
-      <path d="M7.076 21.337H2.47a.641.641 0 0 1-.633-.74L4.944 3.72a.784.784 0 0 1 .773-.655h6.398c3.09 0 5.485 1.576 4.964 5.378-.474 3.468-2.61 5.385-5.617 5.385H8.92a.785.785 0 0 0-.775.657l-1.069 6.852z" fill="#003087"/>
-      <path d="M18.91 7.228c-.52 3.802-2.924 5.72-5.931 5.72H10.44a.785.785 0 0 0-.775.657l-1.47 9.42a.534.534 0 0 0 .528.618h3.916a.715.715 0 0 0 .705-.6l.72-4.57a.785.785 0 0 1 .775-.658h1.23c3.007 0 5.412-1.917 5.932-5.72.433-3.17-1.12-4.867-3.07-4.867z" fill="#0079C1"/>
-      <path d="M12.979 12.948c.474-3.468 2.61-5.385 5.617-5.385h.314a4.912 4.912 0 0 0-3.11-1.185H9.402a.784.784 0 0 0-.775.657l-1.069 6.852h1.47a.785.785 0 0 1 .775-.657l1.069-6.852h1.75c1.78 0 3.22.68 3.957 2.07-.63.95-1.57 2.05-3.599 4.5z" fill="#002069" opacity="0.4"/>
-    </svg>`,
-    copy: `<svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-    </svg>`,
-    check: `<svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
-      <polyline points="20 6 9 17 4 12"/>
-    </svg>`,
-    external: `<svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
-      <polyline points="15 3 21 3 21 9"/>
-      <line x1="10" y1="14" x2="21" y2="3"/>
-    </svg>`,
-  };
+  function makeElement(tag, className, text) {
+    const element = document.createElement(tag);
+    if (className) element.className = className;
+    if (text !== undefined) element.textContent = text;
+    return element;
+  }
+
+  function createSupportIcon(kind) {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const iconAttrs = kind === 'tpbank'
+      ? { class: 'channel-svg tpbank-svg', viewBox: '0 0 28 28', width: '24', height: '24', fill: 'none' }
+      : kind === 'paypal'
+        ? { class: 'channel-svg paypal-svg', viewBox: '0 0 24 24', width: '22', height: '22', fill: 'none' }
+        : { viewBox: '0 0 24 24', width: '12', height: '12', stroke: 'currentColor', 'stroke-width': kind === 'check' ? '2.5' : '2', fill: 'none', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' };
+    iconAttrs['aria-hidden'] = 'true';
+    for (const [name, value] of Object.entries(iconAttrs)) svg.setAttribute(name, value);
+    const add = (tag, attrs) => {
+      const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
+      for (const [name, value] of Object.entries(attrs)) node.setAttribute(name, value);
+      svg.appendChild(node);
+    };
+    if (kind === 'tpbank') {
+      add('path', { d: 'M14 2.5L25.5 22.5H2.5L14 2.5Z', fill: '#582580' });
+      add('path', { d: 'M14 2.5L2.5 22.5L14 15.5L14 2.5Z', fill: '#F58220' });
+      add('path', { d: 'M14 15.5L2.5 22.5H25.5L14 15.5Z', fill: '#752B92' });
+      add('path', { d: 'M14 2.5L25.5 22.5L14 15.5L14 2.5Z', fill: '#501878' });
+    } else if (kind === 'paypal') {
+      add('path', { d: 'M7.076 21.337H2.47a.641.641 0 0 1-.633-.74L4.944 3.72a.784.784 0 0 1 .773-.655h6.398c3.09 0 5.485 1.576 4.964 5.378-.474 3.468-2.61 5.385-5.617 5.385H8.92a.785.785 0 0 0-.775.657l-1.069 6.852z', fill: '#003087' });
+      add('path', { d: 'M18.91 7.228c-.52 3.802-2.924 5.72-5.931 5.72H10.44a.785.785 0 0 0-.775.657l-1.47 9.42a.534.534 0 0 0 .528.618h3.916a.715.715 0 0 0 .705-.6l.72-4.57a.785.785 0 0 1 .775-.658h1.23c3.007 0 5.412-1.917 5.932-5.72.433-3.17-1.12-4.867-3.07-4.867z', fill: '#0079C1' });
+      add('path', { d: 'M12.979 12.948c.474-3.468 2.61-5.385 5.617-5.385h.314a4.912 4.912 0 0 0-3.11-1.185H9.402a.784.784 0 0 0-.775.657l-1.069 6.852h1.47a.785.785 0 0 1 .775-.657l1.069-6.852h1.75c1.78 0 3.22.68 3.957 2.07-.63.95-1.57 2.05-3.599 4.5z', fill: '#002069', opacity: '0.4' });
+    } else if (kind === 'copy') {
+      add('rect', { x: '9', y: '9', width: '13', height: '13', rx: '2', ry: '2' });
+      add('path', { d: 'M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1' });
+    } else {
+      add('polyline', { points: '20 6 9 17 4 12' });
+    }
+    return svg;
+  }
 
   function renderSupport() {
     if (!els.supportSection) return;
@@ -166,17 +180,16 @@
       for (const link of links) {
         const card = document.createElement('div');
         card.className = 'support-paypal-card';
-        card.innerHTML = `
-          <div class="support-paypal-left">
-            <div class="support-channel-icon-wrap paypal-icon-wrap">
-              ${ICONS.paypal}
-            </div>
-            <div class="support-paypal-info">
-              <div class="support-paypal-title">${link.label}</div>
-              <div class="support-paypal-sub">paypal.me/dusk4203</div>
-            </div>
-          </div>
-        `;
+        const left = makeElement('div', 'support-paypal-left');
+        const iconWrap = makeElement('div', 'support-channel-icon-wrap paypal-icon-wrap');
+        iconWrap.appendChild(createSupportIcon('paypal'));
+        const info = makeElement('div', 'support-paypal-info');
+        info.append(
+          makeElement('div', 'support-paypal-title', link.label),
+          makeElement('div', 'support-paypal-sub', 'paypal.me/dusk4203'),
+        );
+        left.append(iconWrap, info);
+        card.appendChild(left);
 
         const openPaypal = () => {
           showToast(tr('support_open_status', { provider: link.label }));
@@ -203,54 +216,51 @@
       for (const bank of banks) {
         const card = document.createElement('div');
         card.className = 'support-bank-card';
-        card.innerHTML = `
-          <div class="support-bank-header">
-            <div class="support-bank-brand">
-              <div class="support-channel-icon-wrap tpbank-icon-wrap">
-                ${ICONS.tpbank}
-              </div>
-              <div class="support-bank-names">
-                <span class="support-bank-title">${bank.bank}</span>
-                <span class="support-bank-sub">TPBank</span>
-              </div>
-            </div>
-            <span class="support-bank-badge">${tr('support_transfer')}</span>
-          </div>
-
-          <div class="support-bank-account-block">
-            <div class="support-bank-label">${tr('support_bank_account')}</div>
-            <div class="support-bank-account-row">
-              <code class="support-bank-account">${bank.accountNumber}</code>
-              <button type="button" class="support-copy-btn" title="${tr('support_copy_account')}">
-                <span class="copy-btn-icon">${ICONS.copy}</span>
-                <span class="copy-btn-text">${tr('support_copy_account')}</span>
-              </button>
-            </div>
-          </div>
-
-          ${bank.qrAsset ? `
-            <div class="support-qr-wrap">
-              <div class="support-qr-frame">
-                <img class="support-qr" src="${chrome.runtime.getURL(bank.qrAsset)}" alt="${tr('support_qr_alt', { bank: bank.bank })}" loading="lazy">
-              </div>
-            </div>
-          ` : ''}
-        `;
-
-        const copyBtn = card.querySelector('.support-copy-btn');
-        const copyIcon = copyBtn.querySelector('.copy-btn-icon');
-        const copyText = copyBtn.querySelector('.copy-btn-text');
+        const header = makeElement('div', 'support-bank-header');
+        const brand = makeElement('div', 'support-bank-brand');
+        const bankIconWrap = makeElement('div', 'support-channel-icon-wrap tpbank-icon-wrap');
+        bankIconWrap.appendChild(createSupportIcon('tpbank'));
+        const names = makeElement('div', 'support-bank-names');
+        names.append(
+          makeElement('span', 'support-bank-title', bank.bank),
+          makeElement('span', 'support-bank-sub', 'TPBank'),
+        );
+        brand.append(bankIconWrap, names);
+        header.append(brand, makeElement('span', 'support-bank-badge', tr('support_transfer')));
+        const accountBlock = makeElement('div', 'support-bank-account-block');
+        const accountRow = makeElement('div', 'support-bank-account-row');
+        const copyBtn = makeElement('button', 'support-copy-btn');
+        copyBtn.type = 'button';
+        copyBtn.title = tr('support_copy_account');
+        const copyIcon = makeElement('span', 'copy-btn-icon');
+        copyIcon.appendChild(createSupportIcon('copy'));
+        const copyText = makeElement('span', 'copy-btn-text', tr('support_copy_account'));
+        copyBtn.append(copyIcon, copyText);
+        accountRow.append(makeElement('code', 'support-bank-account', bank.accountNumber), copyBtn);
+        accountBlock.append(makeElement('div', 'support-bank-label', tr('support_bank_account')), accountRow);
+        card.append(header, accountBlock);
+        if (bank.qrAsset) {
+          const qrWrap = makeElement('div', 'support-qr-wrap');
+          const qrFrame = makeElement('div', 'support-qr-frame');
+          const qr = makeElement('img', 'support-qr');
+          qr.src = extensionApi.runtime.getURL(bank.qrAsset);
+          qr.alt = tr('support_qr_alt', { bank: bank.bank });
+          qr.loading = 'lazy';
+          qrFrame.appendChild(qr);
+          qrWrap.appendChild(qrFrame);
+          card.appendChild(qrWrap);
+        }
 
         copyBtn.addEventListener('click', async (e) => {
           e.stopPropagation();
           const copied = await copySupportText(bank.accountNumber);
           if (copied) {
             copyBtn.classList.add('copied');
-            copyIcon.innerHTML = ICONS.check;
+            copyIcon.replaceChildren(createSupportIcon('check'));
             copyText.textContent = tr('support_copied_short');
             setTimeout(() => {
               copyBtn.classList.remove('copied');
-              copyIcon.innerHTML = ICONS.copy;
+              copyIcon.replaceChildren(createSupportIcon('copy'));
               copyText.textContent = tr('support_copy_account');
             }, 2200);
             showToast(tr('support_copied_account', { account: bank.accountNumber }));
@@ -275,7 +285,7 @@
   }
 
   function renderSites() {
-    els.sitesList.innerHTML = '';
+    els.sitesList.replaceChildren();
     els.sitesCount.textContent = String(config.enabledSites.length);
     const sites = [...config.enabledSites].sort();
 
@@ -319,7 +329,7 @@
   }
 
   function renderAllow() {
-    els.allowList.innerHTML = '';
+    els.allowList.replaceChildren();
     const rules = config.allowRules.map(parseRuleKey).filter(Boolean).sort((a, b) => {
       const h = displayHost(a.origin).localeCompare(displayHost(b.origin));
       return h || a.type.localeCompare(b.type);
@@ -412,7 +422,7 @@
     if (els.toastsTitle) els.toastsTitle.textContent = tr('setting_toasts_title');
     if (els.toastsDesc) els.toastsDesc.textContent = tr('setting_toasts_desc');
 
-    const currentMode = config.settings.smartPlayerMode || 'smart';
+    const currentMode = config.settings.smartPlayerMode || 'compatible';
     els.smartMode.value = currentMode;
     els.smartModeRadios.forEach((radio) => {
       radio.checked = radio.value === currentMode;

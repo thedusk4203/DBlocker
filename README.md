@@ -1,24 +1,41 @@
-# DBlocker Extension v1.0.0
+# DBlocker
 
-## Cài đặt trên Chrome / Edge
+DBlocker là browser extension do người dùng điều khiển để giảm popup,
+redirect, click overlay, tab-under và các navigation trap gây khó chịu.
 
-1. Mở `chrome://extensions` (hoặc `edge://extensions`).
-2. Bật **Developer mode** (Chế độ dành cho nhà phát triển).
-3. Bấm chọn **Load unpacked** (Tải tiện ích đã giải nén).
-4. Chọn thư mục `DBlocker`.
+Phiên bản Chromium và Firefox nằm trong cùng repository nhưng được giữ thành
+hai package độc lập. Lý do là hai nền tảng có khác biệt về vòng đời background
+và API extension.
 
-## Cách dùng
+## Cấu trúc repository
 
-### Bật site
+| Thư mục | Nền tảng | Cách nạp thử |
+| --- | --- | --- |
+| [`chromium/`](chromium/) | Chrome / Edge | `chrome://extensions` → **Load unpacked** |
+| [`firefox/`](firefox/) | Firefox desktop | `about:debugging` → **Load Temporary Add-on** |
+| [`LICENSES/`](LICENSES/) | Giấy phép dùng chung | Không phải thư mục để nạp extension |
 
-Mở site cần bảo vệ → bấm icon DBlocker → **Protection OFF → ON**.
+Trong mỗi target, `manifest.json` nằm ở ngay thư mục gốc. Vì vậy khi nạp
+extension, hãy chọn đúng `chromium/` hoặc `firefox/`, không chọn thư mục
+repository bên ngoài.
 
-DBlocker lưu site key, ví dụ `abcde`, nên site vẫn match nếu chuyển từ `.cc` sang `.xyz`, `.net`, `.id.vn`, v.v.
+## Phiên bản hiện tại
 
-### Khi player bị chặn
+- Chromium: `1.1.0` — xem [`chromium/README.md`](chromium/README.md).
+- Firefox: `1.1.0` — xem [`firefox/README.md`](firefox/README.md).
 
-Player được nhận diện. Mở phần quản lý từ placeholder/popup và chọn **Always allow**. DBlocker lưu rule `iframe|origin` rồi reload tab để player khởi tạo lại sạch. Iframe `unknown` không phải player mới có thể dùng **Load once**.
+Bản Firefox là một port riêng. Source có mặt trong repository không đồng
+nghĩa với việc bản đó đã được Mozilla ký, đã phát hành trên AMO, hoặc đã qua
+toàn bộ kiểm thử hành vi trên Firefox thật.
 
-Persistent ALLOW chỉ được sửa từ extension UI, không cho website tự ghi whitelist.
+## Phát hành
 
+Các file ZIP/XPI tạo ra trong quá trình đóng gói là artifact phát hành, không
+nên trộn vào source tree. Khi có bản phát hành chính thức, nên đính kèm chúng
+trong mục **GitHub Releases** và ghi rõ target, version, checksum cùng trạng
+thái kiểm thử.
 
+## Giấy phép
+
+Xem [MPL-2.0](LICENSES/MPL-2.0.txt) và
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).

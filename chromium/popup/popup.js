@@ -45,7 +45,7 @@
   let pendingFocusLoaded = false;
 
   function currentLang() {
-    return config.settings?.language || 'en';
+    return config.settings?.language || 'vi';
   }
 
   function tr(key, params) {
@@ -208,19 +208,57 @@
     els.clearBtn.classList.toggle('visibility-hidden', activeTab !== 'block');
   }
 
+  function createSvgIcon(kind, size = 11) {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const strokeWidth = kind === 'empty' ? '1.8' : '2.5';
+    for (const [name, value] of Object.entries({
+      viewBox: '0 0 24 24', width: String(size), height: String(size),
+      stroke: 'currentColor', 'stroke-width': strokeWidth, fill: 'none',
+      'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true',
+    })) svg.setAttribute(name, value);
+
+    const add = (tag, attrs) => {
+      const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
+      for (const [name, value] of Object.entries(attrs)) node.setAttribute(name, value);
+      svg.appendChild(node);
+    };
+
+    if (kind === 'empty') {
+      add('path', { d: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z' });
+      add('path', { d: 'm9 12 2 2 4-4' });
+    } else if (kind === 'play') {
+      add('polygon', { points: '5 3 19 12 5 21 5 3' });
+    } else if (kind === 'check') {
+      add('polyline', { points: '20 6 9 17 4 12' });
+    } else if (kind === 'close') {
+      add('line', { x1: '18', y1: '6', x2: '6', y2: '18' });
+      add('line', { x1: '6', y1: '6', x2: '18', y2: '18' });
+    } else if (kind === 'trash') {
+      add('polyline', { points: '3 6 5 6 21 6' });
+      add('path', { d: 'M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2' });
+    }
+    return svg;
+  }
+
+  function appendButtonContent(button, iconKind, label) {
+    const text = document.createElement('span');
+    text.textContent = label;
+    button.append(createSvgIcon(iconKind), text);
+  }
+
   function createEmptyState(title, desc) {
     const wrap = document.createElement('div');
     wrap.className = 'empty-state';
-    wrap.innerHTML = `
-      <div class="empty-icon">
-        <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-          <path d="m9 12 2 2 4-4"/>
-        </svg>
-      </div>
-      <div class="empty-title">${title}</div>
-      <div class="empty-desc">${desc}</div>
-    `;
+    const icon = document.createElement('div');
+    icon.className = 'empty-icon';
+    icon.appendChild(createSvgIcon('empty', 24));
+    const titleEl = document.createElement('div');
+    titleEl.className = 'empty-title';
+    titleEl.textContent = title;
+    const descEl = document.createElement('div');
+    descEl.className = 'empty-desc';
+    descEl.textContent = desc;
+    wrap.append(icon, titleEl, descEl);
     return wrap;
   }
 
@@ -281,12 +319,7 @@
     if (item.type === 'iframe' && !isVideoPlayer) {
       const loadOnceBtn = document.createElement('button');
       loadOnceBtn.className = 'btn-chip primary';
-      loadOnceBtn.innerHTML = `
-        <svg viewBox="0 0 24 24" width="11" height="11" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
-          <polygon points="5 3 19 12 5 21 5 3"/>
-        </svg>
-        <span>${tr('load_once')}</span>
-      `;
+      appendButtonContent(loadOnceBtn, 'play', tr('load_once'));
       loadOnceBtn.addEventListener('click', async () => {
         if (browserTab?.id == null) return;
         await chrome.runtime.sendMessage({ type: 'ADS_ALLOW_ONCE', tabId: browserTab.id, origin: item.origin });
@@ -297,12 +330,7 @@
 
     const allowBtn = document.createElement('button');
     allowBtn.className = 'btn-chip allow';
-    allowBtn.innerHTML = `
-      <svg viewBox="0 0 24 24" width="11" height="11" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
-        <polyline points="20 6 9 17 4 12"/>
-      </svg>
-      <span>${isVideoPlayer ? tr('always_allow') : tr('allow')}</span>
-    `;
+    appendButtonContent(allowBtn, 'check', isVideoPlayer ? tr('always_allow') : tr('allow'));
     allowBtn.addEventListener('click', async () => {
       const key = ruleKey(item.type, item.origin);
       await saveAllowRules([...config.allowRules, key]);
@@ -362,13 +390,7 @@
 
     const blockBtn = document.createElement('button');
     blockBtn.className = 'btn-chip danger';
-    blockBtn.innerHTML = `
-      <svg viewBox="0 0 24 24" width="11" height="11" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
-        <line x1="18" y1="6" x2="6" y2="18"/>
-        <line x1="6" y1="6" x2="18" y2="18"/>
-      </svg>
-      <span>${tr('block_again')}</span>
-    `;
+    appendButtonContent(blockBtn, 'close', tr('block_again'));
     blockBtn.addEventListener('click', async () => {
       const key = ruleKey(rule.type, rule.origin);
       await saveAllowRules(config.allowRules.filter((entry) => entry !== key));
@@ -413,13 +435,7 @@
 
     const removeBtn = document.createElement('button');
     removeBtn.className = 'btn-chip danger';
-    removeBtn.innerHTML = `
-      <svg viewBox="0 0 24 24" width="11" height="11" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
-        <polyline points="3 6 5 6 21 6"/>
-        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-      </svg>
-      <span>${tr('remove')}</span>
-    `;
+    appendButtonContent(removeBtn, 'trash', tr('remove'));
     removeBtn.addEventListener('click', async () => {
       await saveEnabledSites(config.enabledSites.filter((key) => key !== siteKey));
       setStatus(tr('removed_site_status', { site: siteKey }));
@@ -491,7 +507,7 @@
     renderTabs(blocked.length, allowed.length);
     renderSummary(blocked);
 
-    els.list.innerHTML = '';
+    els.list.replaceChildren();
 
     if (activeTab === 'block') {
       if (!blocked.length) {
@@ -572,9 +588,26 @@
   });
 
   els.reloadTabBtn.addEventListener('click', async () => {
-    if (browserTab?.id == null) return;
+    if (els.reloadTabBtn.disabled) return;
+    els.reloadTabBtn.disabled = true;
     setStatus(tr('reloading_tab_status'));
-    chrome.tabs.reload(browserTab.id);
+
+    try {
+      // Resolve the active tab again at click time instead of relying on the
+      // snapshot captured when the popup first opened, and await the reload
+      // so browser errors are not silently lost.
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      const targetTab = tabs[0] || browserTab;
+      if (targetTab?.id == null) throw new Error('No active tab to reload');
+
+      browserTab = targetTab;
+      await chrome.tabs.reload(targetTab.id);
+      window.close();
+    } catch (error) {
+      console.warn('[DBlocker] Could not reload active tab:', error);
+      els.reloadTabBtn.disabled = false;
+      setStatus(tr('reload_failed_status'));
+    }
   });
 
   if (els.supportBtn) {

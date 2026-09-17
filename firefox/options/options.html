@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title id="pageTitle">DBlocker — Cài đặt</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-mark"><img src="../assets/brand/dblocker-logo.png" alt="DBlocker"></div>
+        <div><div class="brand-name">DBlocker</div><div class="brand-version">Version 1.1.0</div></div>
+      </div>
+      <nav class="sidebar-nav" aria-label="Settings sections">
+        <a href="#general" class="nav-link active"><span class="nav-icon">◉</span><span id="navGeneral">General</span></a>
+        <a href="#protection" class="nav-link"><span class="nav-icon">◈</span><span id="navProtection">Protection</span></a>
+        <a href="#lists" class="nav-link"><span class="nav-icon">≡</span><span id="navLists">Lists</span></a>
+        <a href="#backup" class="nav-link"><span class="nav-icon">⇅</span><span id="navBackup">Backup</span></a>
+      </nav>
+      <div id="support" class="sidebar-support">
+        <div class="sidebar-support-head"><span class="sidebar-support-heart">♡</span><strong id="supportSectionTitle">Support DBlocker</strong></div>
+        <div id="supportLinks" class="support-links"></div>
+        <div id="supportBanks" class="support-banks"></div>
+        <div id="supportUnconfigured" class="support-unconfigured">Not configured.</div>
+      </div>
+    </aside>
+
+    <main class="content">
+      <header class="page-header">
+        <div><span id="settingsEyebrow" class="eyebrow">DBlocker settings</span><h1 id="settingsHeading">Protection preferences</h1><p id="heroDesc">Cài đặt bộ lọc và danh sách trang.</p></div>
+        <div class="header-badge"><span class="badge-dot"></span><span id="extensionActiveText">Extension active</span></div>
+      </header>
+
+      <section id="general" class="settings-section">
+        <div class="section-heading"><div><h2 id="langSectionTitle">Ngôn ngữ</h2><p id="langSectionDesc">Choose how DBlocker appears across popup and settings.</p></div></div>
+        <div class="panel language-panel">
+          <div class="language-grid">
+            <label class="choice-card"><input type="radio" name="languageRadio" value="vi"><span class="choice-main">Tiếng Việt</span><span class="choice-code" id="langBadgeVi">VI</span></label>
+            <label class="choice-card"><input type="radio" name="languageRadio" value="en"><span class="choice-main">English</span><span class="choice-code" id="langBadgeEn">EN</span></label>
+            <label class="choice-card"><input type="radio" name="languageRadio" value="zh"><span class="choice-main">中文</span><span class="choice-code" id="langBadgeZh">ZH</span></label>
+          </div>
+        </div>
+      </section>
+
+      <section id="protection" class="settings-section">
+        <div class="section-heading"><div><h2 id="behaviorSectionTitle">Bảo vệ & Hành vi</h2><p id="behaviorSectionDesc">Control how aggressively DBlocker treats embedded players and page notifications.</p></div></div>
+        <div class="panel settings-list">
+          <div class="setting-row mode-row">
+            <div class="setting-copy"><div class="setting-title" id="smartModeTitle">Chế độ Smart Player</div><div class="setting-desc" id="smartModeDesc">Chọn cách xử lý iframe player chưa được cho phép.</div></div>
+            <select id="smartMode" class="hidden-select" aria-hidden="true" tabindex="-1"><option value="smart">Smart</option><option value="strict">Strict</option><option value="compatible">Compatible</option></select>
+          </div>
+          <div class="mode-grid">
+            <label class="mode-card"><input type="radio" name="smartModeRadio" value="smart"><span class="mode-title"><strong>Smart</strong><span id="smartBadge" class="mode-badge">Cân bằng</span></span><span id="smartDetail" class="mode-detail">Tự động nhận diện player đáng tin cậy.</span></label>
+            <label class="mode-card"><input type="radio" name="smartModeRadio" value="strict"><span class="mode-title"><strong>Strict</strong><span id="strictBadge" class="mode-badge">Mạnh</span></span><span id="strictDetail" class="mode-detail">Chặn iframe chéo origin chưa được cho phép.</span></label>
+            <label class="mode-card"><input type="radio" name="smartModeRadio" value="compatible"><span class="mode-title"><strong>Compatible</strong><span id="compatBadge" class="mode-badge">Mặc định</span></span><span id="compatDetail" class="mode-detail">Tự động cho phép các player có độ tin cậy cao phát ngay.</span></label>
+          </div>
+          <div class="divider"></div>
+          <div class="setting-row">
+            <div class="setting-copy"><div class="setting-title" id="toastsTitle">Thông báo trên web (Toasts)</div><div class="setting-desc" id="toastsDesc">Hiện thông báo khi DBlocker chặn popup hoặc chuyển hướng.</div></div>
+            <label class="switch"><input id="showToasts" type="checkbox"><span class="slider"></span></label>
+          </div>
+        </div>
+      </section>
+
+      <section id="lists" class="settings-section">
+        <div class="section-heading"><div><h2 id="listsSectionTitle">Danh sách quản lý</h2><p id="listsSectionDesc">Manage protected websites and global allow rules.</p></div></div>
+        <div class="panel list-panel">
+          <nav class="options-tabs">
+            <button class="opt-tab active" data-tab="sites"><span id="tabSitesTitle">Danh sách chặn (SITES)</span><span id="sitesCount" class="count-badge">0</span></button>
+            <button class="opt-tab" data-tab="allow"><span id="tabAllowTitle">Luôn cho phép (ALLOW)</span><span id="allowCount" class="count-badge">0</span></button>
+          </nav>
+          <div id="sitesPanel" class="tab-panel active">
+            <div class="add-site-row"><input id="siteInput" placeholder="Nhập domain..."><button id="addSiteBtn" class="primary-button"><span id="addSiteText">Thêm trang</span></button></div>
+            <div class="info-note"><span class="note-icon">i</span><span id="tipSitesText">Tự động chặn kể cả khi website đổi đuôi tên miền.</span></div>
+            <div id="sitesList" class="items-grid"></div>
+          </div>
+          <div id="allowPanel" class="tab-panel">
+            <div class="info-note"><span class="note-icon">i</span><span id="tipAllowText">Quy tắc cho phép có hiệu lực toàn cục theo loại mục và tên miền.</span></div>
+            <div id="allowList" class="items-grid"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="backup" class="settings-section">
+        <div class="section-heading"><div><h2 id="backupSectionTitle">Sao lưu & Khôi phục</h2><p id="backupSectionDesc">Export or restore your configuration locally.</p></div></div>
+        <div class="panel backup-panel">
+          <button id="exportBtn" class="secondary-button"><span id="exportText">Xuất JSON</span></button>
+          <label class="secondary-button file-upload-label"><span id="importText">Nhập JSON</span><input id="importInput" type="file" accept="application/json,.json"></label>
+          <button id="resetBtn" class="danger-button"><span id="resetText">Đặt lại mặc định</span></button>
+        </div>
+      </section>
+
+      <div id="toastNotification" class="feedback-toast"></div>
+      <div id="status" class="hidden-control"></div>
+    </main>
+  </div>
+
+  <script src="../src/psl.js"></script>
+  <script src="../src/shared.js"></script>
+  <script src="../src/support-config.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>
