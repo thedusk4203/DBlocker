@@ -1,6 +1,6 @@
 # DBlocker
 
-[Chrome Web Store — Coming soon](https://chromewebstore.google.com/) · [Firefox Add-ons — Coming soon](https://addons.mozilla.org/firefox/)
+[Chrome Web Store — Coming soon](https://chromewebstore.google.com/) · [Firefox Add-ons — Click để tải](https://addons.mozilla.org/en-US/firefox/addon/dblocker/)
 
 DBlocker là browser extension do người dùng điều khiển để giảm popup,
 redirect, click overlay, tab-under và các navigation trap gây khó chịu.
