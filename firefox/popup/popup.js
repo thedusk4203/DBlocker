@@ -1,6 +1,12 @@
 (() => {
   'use strict';
 
+  const mobilePanelSource = new URL(location.href).searchParams.get('tabId');
+  document.documentElement.classList.toggle(
+    'mobile-panel',
+    mobilePanelSource !== null && /^\d+$/.test(mobilePanelSource),
+  );
+
   const S = globalThis.DBlockerShared || globalThis.AdsControlShared;
   const { ruleKey, parseRuleKey, displayHost, t, getTypeLabel } = S;
 

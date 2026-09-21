@@ -43,7 +43,8 @@ button,input,select{font:inherit}.popup-shell{min-height:530px;background:var(--
 .list-container::-webkit-scrollbar-thumb{border-radius:4px}
 
 /* Fit narrow Android popups while retaining the desktop popup width. */
-body{width:380px;max-width:100vw}
+body{width:380px}
+.mobile-panel body{width:380px;max-width:100vw}
 .topbar{height:auto;min-height:68px;gap:8px;flex-wrap:wrap}
 .top-actions{margin-left:auto}
 .protection-left>div:last-child{min-width:0}
@@ -51,20 +52,20 @@ body{width:380px;max-width:100vw}
 .site-host{max-width:100%;min-width:0}
 .item-actions{flex-wrap:wrap}
 @media(pointer:coarse){
-  body{width:100vw;min-height:0}
-  .popup-shell{min-height:100dvh}
-  .icon-button,.copy-host{min-width:44px;min-height:44px}
-  .language-select{height:44px;font-size:14px}
-  .tab-btn{min-height:48px;font-size:12px}
-  .tabs-nav{height:auto;min-height:48px;padding:0 8px}
-  .btn-chip,.site-add-btn,.footer-action{min-height:44px;font-size:12px}
-  .site-input{height:44px;font-size:16px}
-  .switch{height:44px;width:44px}
-  .slider{top:11px;bottom:11px}
-  .switch input:checked+.slider:before{transform:translateX(22px)}
-  .protection-title,.item-host,.empty-title{font-size:14px}
-  .protection-description,.item-meta,.empty-desc{font-size:12px}
-  .list-container{max-height:none;flex:1}
-  .footer{height:auto;min-height:52px;gap:8px;flex-wrap:wrap}
-  .status-pill{max-width:100%;white-space:normal;overflow-wrap:anywhere}
+  .mobile-panel body{width:100vw;min-height:0}
+  .mobile-panel .popup-shell{min-height:100dvh}
+  .mobile-panel .icon-button,.mobile-panel .copy-host{min-width:44px;min-height:44px}
+  .mobile-panel .language-select{height:44px;font-size:14px}
+  .mobile-panel .tab-btn{min-height:48px;font-size:12px}
+  .mobile-panel .tabs-nav{height:auto;min-height:48px;padding:0 8px}
+  .mobile-panel .btn-chip,.mobile-panel .site-add-btn,.mobile-panel .footer-action{min-height:44px;font-size:12px}
+  .mobile-panel .site-input{height:44px;font-size:16px}
+  .mobile-panel .switch{height:44px;width:44px}
+  .mobile-panel .slider{top:11px;bottom:11px}
+  .mobile-panel .switch input:checked+.slider:before{transform:translateX(22px)}
+  .mobile-panel .protection-title,.mobile-panel .item-host,.mobile-panel .empty-title{font-size:14px}
+  .mobile-panel .protection-description,.mobile-panel .item-meta,.mobile-panel .empty-desc{font-size:12px}
+  .mobile-panel .list-container{max-height:none;flex:1}
+  .mobile-panel .footer{height:auto;min-height:52px;gap:8px;flex-wrap:wrap}
+  .mobile-panel .status-pill{max-width:100%;white-space:normal;overflow-wrap:anywhere}
 }
